@@ -1,0 +1,79 @@
+<div class="app">
+  <header class="header">
+    <img src="assets/logo.png" alt="logo" class="logo-img" />
+    <span class="logo">PDF Merger</span>
+    <p class="subtitle">Unisci più file PDF in un unico documento</p>
+  </header>
+
+  <main class="container">
+
+    <!-- Drop zone -->
+    <div
+      class="drop-zone"
+      [class.drag-over]="isDragOver"
+      (dragover)="onDragOver($event)"
+      (dragleave)="onDragLeave()"
+      (drop)="onDrop($event)"
+      (click)="fileInput.click()"
+    >
+      <span class="drop-icon">⬆️</span>
+      <p class="drop-text">Trascina qui i tuoi PDF oppure <strong>clicca per selezionarli</strong></p>
+      <p class="drop-hint">Solo file .pdf — puoi aggiungerne quanti vuoi</p>
+      <input #fileInput type="file" accept="application/pdf" multiple (change)="onFileSelected($event)" hidden />
+    </div>
+
+    <!-- Error -->
+    <div *ngIf="errorMessage" class="alert alert-error">⚠️ {{ errorMessage }}</div>
+
+    <!-- File list -->
+    <div *ngIf="files.length > 0" class="file-list">
+      <div class="file-list-header">
+        <span>{{ files.length }} file selezionati</span>
+        <span class="drag-hint">☰ Trascina per riordinare</span>
+        <button class="btn btn-ghost btn-sm" (click)="reset()">🗑 Rimuovi tutti</button>
+      </div>
+
+      <ul>
+        <li
+          *ngFor="let file of files; let i = index"
+          class="file-item"
+          draggable="true"
+          [class.dragging]="dragSrcIndex === i"
+          [class.drag-target]="dragOverIndex === i && dragSrcIndex !== i"
+          (dragstart)="onItemDragStart($event, i)"
+          (dragover)="onItemDragOver($event, i)"
+          (dragleave)="onItemDragLeave()"
+          (drop)="onItemDrop($event, i)"
+          (dragend)="onItemDragEnd()"
+        >
+          <span class="drag-handle" title="Trascina per riordinare">⠿</span>
+          <span class="file-index">{{ i + 1 }}</span>
+          <span class="file-icon">📄</span>
+          <div class="file-info">
+            <span class="file-name">{{ file.name }}</span>
+            <span class="file-size">{{ formatSize(file.size) }}</span>
+          </div>
+          <button class="btn-remove" (click)="removeFile(i)" title="Rimuovi">✕</button>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions" *ngIf="files.length >= 2">
+      <button class="btn btn-primary" (click)="mergePdfs()" [disabled]="isMerging">
+        <span *ngIf="!isMerging">🔗 Unisci PDF</span>
+        <span *ngIf="isMerging" class="spinner">⏳ Unione in corso…</span>
+      </button>
+    </div>
+
+    <p *ngIf="files.length === 1" class="hint">Aggiungi almeno un altro PDF per poter unire.</p>
+
+    <!-- Success -->
+    <div *ngIf="mergedPdfUrl" class="success-panel">
+      <span class="success-icon">✅</span>
+      <p>PDF unito con successo!</p>
+      <button class="btn btn-download" (click)="downloadMerged()">⬇️ Scarica merged.pdf</button>
+    </div>
+
+  </main>
+</div>
