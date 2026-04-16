@@ -116,7 +116,7 @@ export class AppComponent {
         pages.forEach(p => merged.addPage(p));
       }
       const mergedBytes = await merged.save({ useObjectStreams: true, addDefaultPage: false });
-      const blob = new Blob([mergedBytes as any], { type: 'application/pdf' });
+      const blob = new Blob([mergedBytes], { type: 'application/pdf' });
       this.mergedPdfBytes = mergedBytes;
       this.mergedPdfUrl = URL.createObjectURL(blob);
     } catch (err) {
@@ -155,16 +155,18 @@ export class AppComponent {
       throw new Error('Nessun PDF unito disponibile.');
     }
 
+    await import('pdfjs-dist/legacy/build/pdf.worker.entry');
     const pdfjsLib: any = await import('pdfjs-dist/legacy/build/pdf');
-    const loadingTask = pdfjsLib.getDocument({ data: this.mergedPdfBytes, disableWorker: true });
+    const loadingTask = pdfjsLib.getDocument({ data: this.mergedPdfBytes });
     const sourcePdf: any = await loadingTask.promise;
     const lowQualityDoc = await PDFDocument.create();
+    const lowQualityJpegQuality = 0.68;
 
     try {
       for (let pageIndex = 1; pageIndex <= sourcePdf.numPages; pageIndex++) {
         const sourcePage = await sourcePdf.getPage(pageIndex);
         const outputViewport = sourcePage.getViewport({ scale: 1 });
-        const renderViewport = sourcePage.getViewport({ scale: 0.7 });
+        const renderViewport = outputViewport;
 
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.floor(renderViewport.width));
@@ -174,13 +176,15 @@ export class AppComponent {
         if (!context) {
           throw new Error('Impossibile inizializzare il canvas per la compressione PDF.');
         }
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
 
         await sourcePage.render({
           canvasContext: context,
           viewport: renderViewport
         }).promise;
 
-        const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.45);
+        const jpegDataUrl = canvas.toDataURL('image/jpeg', lowQualityJpegQuality);
         const jpegImage = await lowQualityDoc.embedJpg(this.dataUrlToUint8Array(jpegDataUrl));
         const page = lowQualityDoc.addPage([outputViewport.width, outputViewport.height]);
 
@@ -223,7 +227,7 @@ export class AppComponent {
   }
 
   private triggerDownload(bytes: Uint8Array, filename: string): void {
-    const blob = new Blob([bytes as any], { type: 'application/pdf' });
+    const blob = new Blob([bytes], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
