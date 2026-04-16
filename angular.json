@@ -26,7 +26,6 @@
             "polyfills": "src/polyfills.ts",
             "tsConfig": "tsconfig.app.json",
             "aot": true,
-            "baseHref": "./",
             "assets": [
               "src/favicon.ico",
               "src/assets"
@@ -48,6 +47,7 @@
               "outputHashing": "all",
               "sourceMap": false,
               "namedChunks": false,
+              "baseHref": "./",
               "extractLicenses": true,
               "vendorChunk": false,
               "buildOptimizer": true,

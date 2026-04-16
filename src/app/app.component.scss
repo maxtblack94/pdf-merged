@@ -207,5 +207,21 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
   p { margin-bottom: 1rem; font-size: .95rem; }
 }
 
+.download-actions {
+  display: flex;
+  justify-content: center;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+
+.btn.btn-download-low {
+  background: linear-gradient(135deg, #ed8936, #dd6b20);
+  box-shadow: 0 4px 15px rgba(237,137,54,.35);
+
+  &:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(237,137,54,.45);
+  }
+}
+
 .spinner { display: inline-block; animation: pulse 1s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .5 } }

@@ -7,8 +7,8 @@
 
   <main class="container">
 
-    <!--Ciao  Drop zone -->
-     
+    <!-- Drop zone -->
+
     <div
       class="drop-zone"
       [class.drag-over]="isDragOver"
@@ -72,8 +72,17 @@
     <!-- Success -->
     <div *ngIf="mergedPdfUrl" class="success-panel">
       <span class="success-icon">✅</span>
-      <p>PDF unito con successo!</p>
-      <button class="btn btn-download" (click)="downloadMerged()">⬇️ Scarica merged.pdf</button>
+      <p>PDF unito con successo! Scegli la qualità del download.</p>
+      <div class="download-actions">
+        <button class="btn btn-download" (click)="downloadMerged('high')" [disabled]="isPreparingDownload">
+          <span *ngIf="!isPreparingDownload">⬇️ Alta definizione</span>
+          <span *ngIf="isPreparingDownload" class="spinner">⏳ Preparazione…</span>
+        </button>
+        <button class="btn btn-download btn-download-low" (click)="downloadMerged('low')" [disabled]="isPreparingDownload">
+          <span *ngIf="!isPreparingDownload">⬇️ Bassa definizione (più leggero)</span>
+          <span *ngIf="isPreparingDownload" class="spinner">⏳ Preparazione…</span>
+        </button>
+      </div>
     </div>
 
   </main>
