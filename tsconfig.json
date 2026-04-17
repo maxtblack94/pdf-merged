@@ -2,10 +2,10 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    // Questa sotto è quella che si avvicina di più a ciò che cerchi
     "noLib": false,
     "skipLibCheck": true,
     "strict": false,
+    "esModuleInterop": true,
     "noImplicitAny": false,
     "strictPropertyInitialization": false,
     "strictNullChecks": false,
@@ -13,15 +13,11 @@
     "outDir": "./dist/out-tsc",
     "sourceMap": true,
     "declaration": false,
-    "downlevelIteration": true,
     "experimentalDecorators": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "importHelpers": true,
-    "target": "es2015",
-    "module": "es2020",
-    "lib": [
-      "es2018",
-      "dom"
-    ]
+    "target": "ES2022",
+    "useDefineForClassFields": false,
+    "module": "es2020"
   }
 }

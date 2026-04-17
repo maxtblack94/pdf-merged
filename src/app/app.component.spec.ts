@@ -16,16 +16,10 @@ describe('AppComponent', () => {
     expect(app).toBeTruthy();
   });
 
-  it(`should have as title 'pdf-merger'`, () => {
-    const fixture = TestBed.createComponent(AppComponent);
-    const app = fixture.componentInstance;
-    expect(app.title).toEqual('pdf-merger');
-  });
-
-  it('should render title', () => {
+  it('should render application header', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    const compiled = fixture.nativeElement;
-    expect(compiled.querySelector('.content span').textContent).toContain('pdf-merger app is running!');
+    const compiled: HTMLElement = fixture.nativeElement;
+    expect(compiled.querySelector('.logo')?.textContent).toContain('PDF Merger');
   });
 });

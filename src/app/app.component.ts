@@ -1,16 +1,37 @@
-import { Component } from '@angular/core';
-import { PDFDocument } from 'pdf-lib';
+import { ChangeDetectorRef, Component, NgZone, inject } from '@angular/core';
+
+interface MergeWorkerFilePayload {
+  name: string;
+  bytes: ArrayBuffer;
+}
+interface MergeWorkerRequest {
+  type: 'merge';
+  files: MergeWorkerFilePayload[];
+}
+interface MergeWorkerSuccessResponse {
+  type: 'success';
+  mergedBytes: ArrayBuffer;
+}
+interface MergeWorkerErrorResponse {
+  type: 'error';
+  message: string;
+}
+type MergeWorkerResponse = MergeWorkerSuccessResponse | MergeWorkerErrorResponse;
 
 @Component({
-  selector: 'app-root',
-  templateUrl: './app.component.html',
-  styleUrls: ['./app.component.scss']
+    selector: 'app-root',
+    templateUrl: './app.component.html',
+    styleUrls: ['./app.component.scss'],
+    standalone: false
 })
 export class AppComponent {
+  private readonly mergeWorkerTimeoutMs = 5 * 60 * 1000;
+  private readonly zone = inject(NgZone);
+  private readonly cdr = inject(ChangeDetectorRef);
+
   files: File[] = [];
   mergedPdfUrl: string | null = null;
   mergedPdfBytes: Uint8Array | null = null;
-  lowQualityPdfBytes: Uint8Array | null = null;
   isMerging = false;
   isPreparingDownload = false;
   errorMessage: string | null = null;
@@ -100,7 +121,7 @@ export class AppComponent {
   }
 
   async mergePdfs(): Promise<void> {
-    if (this.files.length < 2) {
+    if (this.files.length < 2 || this.isMerging) {
       return;
     }
     this.isMerging = true;
@@ -108,25 +129,19 @@ export class AppComponent {
     this.clearMergedResult();
 
     try {
-      const merged = await PDFDocument.create();
-      for (const file of this.files) {
-        const bytes = await file.arrayBuffer();
-        const doc = await PDFDocument.load(bytes);
-        const pages = await merged.copyPages(doc, doc.getPageIndices());
-        pages.forEach(p => merged.addPage(p));
-      }
-      const mergedBytes = await merged.save({ useObjectStreams: true, addDefaultPage: false });
-      const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+      const mergedBytes = await this.mergeWithWorker(this.files);
+      const blob = new Blob([this.toArrayBuffer(mergedBytes)], { type: 'application/pdf' });
       this.mergedPdfBytes = mergedBytes;
       this.mergedPdfUrl = URL.createObjectURL(blob);
-    } catch (err) {
-      this.errorMessage = 'Errore durante il merge. Verifica che i PDF non siano protetti da password.';
+    } catch (error: unknown) {
+      this.errorMessage = this.formatMergeError(error);
     } finally {
       this.isMerging = false;
+      this.cdr.detectChanges();
     }
   }
 
-  async downloadMerged(quality: 'high' | 'low'): Promise<void> {
+  async downloadMerged(): Promise<void> {
     if (!this.mergedPdfBytes) {
       return;
     }
@@ -135,111 +150,136 @@ export class AppComponent {
     this.isPreparingDownload = true;
 
     try {
-      const bytesToDownload = quality === 'low'
-        ? await this.buildLowQualityPdf()
-        : this.mergedPdfBytes;
-      const filename = quality === 'low' ? 'merged-low.pdf' : 'merged-high.pdf';
-      this.triggerDownload(bytesToDownload, filename);
-    } catch (err) {
-      this.errorMessage = 'Errore durante la preparazione del download.';
+      this.triggerDownload(this.mergedPdfBytes, 'merged-high.pdf');
+      await this.sleep(200);
+      this.reset();
+    } catch (error: unknown) {
+      this.errorMessage = this.formatDownloadError(error);
     } finally {
       this.isPreparingDownload = false;
     }
   }
 
-  private async buildLowQualityPdf(): Promise<Uint8Array> {
-    if (this.lowQualityPdfBytes) {
-      return this.lowQualityPdfBytes;
-    }
-    if (!this.mergedPdfBytes) {
-      throw new Error('Nessun PDF unito disponibile.');
+  private async mergeWithWorker(inputFiles: File[]): Promise<Uint8Array> {
+    if (typeof Worker === 'undefined') {
+      throw new Error('Web Worker non supportato dal browser.');
     }
 
-    await import('pdfjs-dist/legacy/build/pdf.worker.entry');
-    const pdfjsLib: any = await import('pdfjs-dist/legacy/build/pdf');
-    const loadingTask = pdfjsLib.getDocument({ data: this.mergedPdfBytes });
-    const sourcePdf: any = await loadingTask.promise;
-    const lowQualityDoc = await PDFDocument.create();
-    const lowQualityJpegQuality = 0.68;
+    const files = await Promise.all(
+      inputFiles.map(async file => ({
+        name: file.name,
+        bytes: await file.arrayBuffer()
+      }))
+    );
 
-    try {
-      for (let pageIndex = 1; pageIndex <= sourcePdf.numPages; pageIndex++) {
-        const sourcePage = await sourcePdf.getPage(pageIndex);
-        const outputViewport = sourcePage.getViewport({ scale: 1 });
-        const renderViewport = outputViewport;
+    const worker = new Worker(new URL('./app.worker', import.meta.url), { type: 'module' });
+    const transferableBuffers = files.map(file => file.bytes);
+    const payload: MergeWorkerRequest = { type: 'merge', files };
 
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.floor(renderViewport.width));
-        canvas.height = Math.max(1, Math.floor(renderViewport.height));
+    return new Promise<Uint8Array>((resolve, reject) => {
+      let settled = false;
+      const resolveInZone = (value: Uint8Array): void => {
+        this.zone.run(() => resolve(value));
+      };
+      const rejectInZone = (error: Error): void => {
+        this.zone.run(() => reject(error));
+      };
 
-        const context = canvas.getContext('2d');
-        if (!context) {
-          throw new Error('Impossibile inizializzare il canvas per la compressione PDF.');
+      const finalize = (callback: () => void): void => {
+        if (settled) {
+          return;
         }
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
+        settled = true;
+        clearTimeout(timeoutId);
+        worker.terminate();
+        callback();
+      };
 
-        await sourcePage.render({
-          canvasContext: context,
-          viewport: renderViewport
-        }).promise;
+      const timeoutId = setTimeout(() => {
+        finalize(() => rejectInZone(new Error('Timeout durante il merge.')));
+      }, this.mergeWorkerTimeoutMs);
+ // Gestione messaggi dal worker
+      worker.onmessage = (event: MessageEvent<MergeWorkerResponse>) => {
+        const response = event.data;
+        if (response?.type === 'success' && response.mergedBytes instanceof ArrayBuffer) {
+          finalize(() => resolveInZone(new Uint8Array(response.mergedBytes)));
+          return;
+        }
+        if (response?.type === 'error') {
+          finalize(() => rejectInZone(new Error(response.message || 'Errore durante il merge.')));
+          return;
+        }
+        finalize(() => rejectInZone(new Error('Risposta non valida dal worker di merge.')));
+      };
 
-        const jpegDataUrl = canvas.toDataURL('image/jpeg', lowQualityJpegQuality);
-        const jpegImage = await lowQualityDoc.embedJpg(this.dataUrlToUint8Array(jpegDataUrl));
-        const page = lowQualityDoc.addPage([outputViewport.width, outputViewport.height]);
+      worker.onerror = (event: ErrorEvent) => {
+        const message = event.message || 'Errore interno del worker di merge.';
+        finalize(() => rejectInZone(new Error(message)));
+      };
 
-        page.drawImage(jpegImage, {
-          x: 0,
-          y: 0,
-          width: outputViewport.width,
-          height: outputViewport.height
-        });
+      worker.onmessageerror = () => {
+        finalize(() => rejectInZone(new Error('Errore di comunicazione con il worker di merge.')));
+      };
 
-        sourcePage.cleanup();
-        canvas.width = 0;
-        canvas.height = 0;
+      try {
+        worker.postMessage(payload, transferableBuffers);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Invio dati al worker non riuscito.';
+        finalize(() => rejectInZone(new Error(message)));
       }
-
-      this.lowQualityPdfBytes = await lowQualityDoc.save({
-        useObjectStreams: true,
-        addDefaultPage: false
-      });
-
-      return this.lowQualityPdfBytes;
-    } finally {
-      if (typeof sourcePdf.destroy === 'function') {
-        await sourcePdf.destroy();
-      }
-    }
-  }
-
-  private dataUrlToUint8Array(dataUrl: string): Uint8Array {
-    const parts = dataUrl.split(',');
-    if (parts.length < 2) {
-      throw new Error('Formato data URL non valido.');
-    }
-    const binary = atob(parts[1]);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
+    });
   }
 
   private triggerDownload(bytes: Uint8Array, filename: string): void {
-    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const blob = new Blob([this.toArrayBuffer(bytes)], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+
+  private toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise<void>(resolve => setTimeout(resolve, ms));
+  }
+
+  private formatMergeError(error: unknown): string {
+    const message = error instanceof Error ? error.message : '';
+    if (message.startsWith('Impossibile leggere')) {
+      return message;
+    }
+    if (message.startsWith('Timeout durante')) {
+      return `${message} Riprova con meno file o PDF meno pesanti.`;
+    }
+    if (message.toLowerCase().includes('password')) {
+      return 'Errore durante il merge. Uno dei PDF sembra protetto da password.';
+    }
+    return 'Errore durante il merge. Verifica che i PDF non siano protetti da password.';
+  }
+
+  private formatDownloadError(error: unknown): string {
+    const message = error instanceof Error ? error.message : '';
+    if (message) {
+      return message;
+    }
+    return 'Errore durante la preparazione del download.';
   }
 
   reset(): void {
     this.files = [];
     this.clearMergedResult();
     this.errorMessage = null;
+    this.isDragOver = false;
+    this.dragSrcIndex = null;
+    this.dragOverIndex = null;
   }
 
   private clearMergedResult(): void {
@@ -248,7 +288,6 @@ export class AppComponent {
     }
     this.mergedPdfUrl = null;
     this.mergedPdfBytes = null;
-    this.lowQualityPdfBytes = null;
   }
 
   formatSize(bytes: number): string {

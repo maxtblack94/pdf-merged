@@ -17,8 +17,8 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
   color: #fff;
 
   .logo-img {
-    width: 72px;
-    height: 72px;
+    width: 228px;
+    height: 128px;
     object-fit: contain;
     display: block;
     margin: 0 auto .75rem;
@@ -205,22 +205,6 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
 
   .success-icon { font-size: 2rem; display: block; margin-bottom: .5rem; }
   p { margin-bottom: 1rem; font-size: .95rem; }
-}
-
-.download-actions {
-  display: flex;
-  justify-content: center;
-  gap: .75rem;
-  flex-wrap: wrap;
-}
-
-.btn.btn-download-low {
-  background: linear-gradient(135deg, #ed8936, #dd6b20);
-  box-shadow: 0 4px 15px rgba(237,137,54,.35);
-
-  &:hover:not(:disabled) {
-    box-shadow: 0 6px 20px rgba(237,137,54,.45);
-  }
 }
 
 .spinner { display: inline-block; animation: pulse 1s infinite; }
