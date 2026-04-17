@@ -12,17 +12,25 @@
     <div
       class="drop-zone"
       [class.drag-over]="isDragOver"
+      [class.loading]="isAddingFiles"
       (dragover)="onDragOver($event)"
       (dragleave)="onDragLeave()"
       (drop)="onDrop($event)"
-      (click)="fileInput.click()"
-      (keydown.enter)="fileInput.click()"
-      (keydown.space)="fileInput.click(); $event.preventDefault()"
+      (click)="openFileSelector(fileInput)"
+      (keydown.enter)="openFileSelector(fileInput)"
+      (keydown.space)="openFileSelector(fileInput); $event.preventDefault()"
       tabindex="0"
       >
-      <span class="drop-icon">⬆️</span>
-      <p class="drop-text">Trascina qui PDF, PNG, JPEG, DOC o DOCX oppure <strong>clicca per selezionarli</strong></p>
-      <p class="drop-hint">Formati supportati: .pdf, .png, .jpg, .jpeg, .doc, .docx</p>
+      @if (!isAddingFiles) {
+        <span class="drop-icon">⬆️</span>
+        <p class="drop-text">Trascina qui PDF, PNG, JPEG, DOC o DOCX oppure <strong>clicca per selezionarli</strong></p>
+        <p class="drop-hint">Formati supportati: .pdf, .png, .jpg, .jpeg, .doc, .docx</p>
+      }
+      @if (isAddingFiles) {
+        <span class="drop-icon spinner">⏳</span>
+        <p class="drop-text">Caricamento file in corso…</p>
+        <p class="drop-hint">Attendi il completamento.</p>
+      }
       <input #fileInput type="file" accept="application/pdf,image/png,image/jpeg,.jpg,.jpeg,application/msword,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx" multiple (change)="onFileSelected($event)" hidden />
     </div>
 
@@ -37,13 +45,13 @@
         <div class="file-list-header">
           <span>{{ files.length }} file selezionati</span>
           <span class="drag-hint">☰ Trascina per riordinare</span>
-          <button class="btn btn-ghost btn-sm" (click)="reset()">🗑 Rimuovi tutti</button>
+          <button class="btn btn-ghost btn-sm" (click)="reset()" [disabled]="isAddingFiles || isMerging">🗑 Rimuovi tutti</button>
         </div>
         <ul>
           @for (file of files; track file; let i = $index) {
             <li
               class="file-item"
-              draggable="true"
+              [attr.draggable]="(isAddingFiles || isMerging) ? 'false' : 'true'"
               [class.dragging]="dragSrcIndex === i"
               [class.drag-target]="dragOverIndex === i && dragSrcIndex !== i"
               (dragstart)="onItemDragStart($event, i)"
@@ -59,7 +67,7 @@
                 <span class="file-name">{{ file.name }}</span>
                 <span class="file-size">{{ formatSize(file.size) }}</span>
               </div>
-              <button class="btn-remove" (click)="removeFile(i)" title="Rimuovi">✕</button>
+              <button class="btn-remove" (click)="removeFile(i)" [disabled]="isAddingFiles || isMerging" title="Rimuovi">✕</button>
             </li>
           }
         </ul>
@@ -69,12 +77,15 @@
     <!-- Actions -->
     @if (files.length > 0) {
       <div class="actions">
-        <button class="btn btn-primary" (click)="mergePdfs()" [disabled]="isMerging">
-          @if (!isMerging) {
+        <button class="btn btn-primary" (click)="mergePdfs()" [disabled]="isMerging || isAddingFiles">
+          @if (!isMerging && !isAddingFiles) {
             <span>🔗 Genera e scarica PDF</span>
           }
           @if (isMerging) {
             <span class="spinner">⏳ Elaborazione in corso…</span>
+          }
+          @if (isAddingFiles) {
+            <span class="spinner">⏳ Caricamento file…</span>
           }
         </button>
       </div>

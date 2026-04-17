@@ -58,6 +58,7 @@ export class AppComponent {
   private readonly cdr = inject(ChangeDetectorRef);
 
   files: File[] = [];
+  isAddingFiles = false;
   isMerging = false;
   errorMessage: string | null = null;
   isDragOver = false;
@@ -66,15 +67,20 @@ export class AppComponent {
   dragSrcIndex: number | null = null;
   dragOverIndex: number | null = null;
 
-  onFileSelected(event: Event): void {
+  async onFileSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
-    if (input.files) {
-      this.addFiles(Array.from(input.files));
-      input.value = '';
+    const selectedFiles = input.files ? Array.from(input.files) : [];
+    input.value = '';
+    if (selectedFiles.length === 0 || this.isAddingFiles) {
+      return;
     }
+    await this.handleIncomingFiles(selectedFiles);
   }
 
   onDragOver(event: DragEvent): void {
+    if (this.isAddingFiles) {
+      return;
+    }
     event.preventDefault();
     this.isDragOver = true;
   }
@@ -83,12 +89,20 @@ export class AppComponent {
     this.isDragOver = false;
   }
 
-  onDrop(event: DragEvent): void {
+  async onDrop(event: DragEvent): Promise<void> {
     event.preventDefault();
     this.isDragOver = false;
-    if (event.dataTransfer?.files) {
-      this.addFiles(Array.from(event.dataTransfer.files));
+    if (this.isAddingFiles || !event.dataTransfer?.files) {
+      return;
     }
+    await this.handleIncomingFiles(Array.from(event.dataTransfer.files));
+  }
+
+  openFileSelector(input: HTMLInputElement): void {
+    if (this.isAddingFiles || this.isMerging) {
+      return;
+    }
+    input.click();
   }
 
   private addFiles(newFiles: File[]): void {
@@ -143,7 +157,7 @@ export class AppComponent {
   }
 
   async mergePdfs(): Promise<void> {
-    if (this.files.length === 0 || this.isMerging) {
+    if (this.files.length === 0 || this.isMerging || this.isAddingFiles) {
       return;
     }
     this.isMerging = true;
@@ -244,6 +258,17 @@ export class AppComponent {
 
   private toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+
+  private async handleIncomingFiles(newFiles: File[]): Promise<void> {
+    this.isAddingFiles = true;
+    try {
+      await this.sleep(0);
+      this.addFiles(newFiles);
+    } finally {
+      this.isAddingFiles = false;
+      this.cdr.detectChanges();
+    }
   }
 
   private async prepareFileForMerge(file: File): Promise<MergeWorkerFilePayload> {
@@ -507,6 +532,7 @@ export class AppComponent {
 
   reset(): void {
     this.files = [];
+    this.isAddingFiles = false;
     this.errorMessage = null;
     this.isDragOver = false;
     this.dragSrcIndex = null;
