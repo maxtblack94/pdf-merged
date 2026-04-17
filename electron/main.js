@@ -1,8 +1,22 @@
 const { app, BrowserWindow } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const url = require('url');
 
 let win;
+
+function resolveAppIconPath() {
+  const preferredIconPath = app.isPackaged
+    ? path.join(__dirname, '../dist/pdf-merger/assets/icon.ico')
+    : path.join(__dirname, '../src/assets/icon.ico');
+  if (fs.existsSync(preferredIconPath)) {
+    return preferredIconPath;
+  }
+
+  return app.isPackaged
+    ? path.join(__dirname, '../dist/pdf-merger/assets/icon.png')
+    : path.join(__dirname, '../src/assets/icon.png');
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -11,7 +25,7 @@ function createWindow() {
     minWidth: 600,
     minHeight: 500,
     title: 'PDF Merger',
-    icon: path.join(__dirname, '../src/assets/icon.png'),
+    icon: resolveAppIconPath(),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
