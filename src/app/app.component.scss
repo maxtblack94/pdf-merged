@@ -172,15 +172,6 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
     &:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(66,153,225,.5); }
   }
 
-  &.btn-download {
-    background: linear-gradient(135deg, #48bb78, #38a169);
-    color: #fff;
-    box-shadow: 0 4px 15px rgba(72,187,120,.4);
-    font-size: 1rem;
-    padding: .8rem 2rem;
-    &:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(72,187,120,.5); }
-  }
-
   &.btn-ghost {
     background: transparent;
     color: #a0aec0;
@@ -192,20 +183,6 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
 }
 
 .actions { text-align: center; }
-
-.hint { text-align: center; color: #718096; font-size: .85rem; }
-
-.success-panel {
-  text-align: center;
-  padding: 1.5rem;
-  background: rgba(72,187,120,0.1);
-  border: 1px solid rgba(72,187,120,.3);
-  border-radius: 12px;
-  color: #9ae6b4;
-
-  .success-icon { font-size: 2rem; display: block; margin-bottom: .5rem; }
-  p { margin-bottom: 1rem; font-size: .95rem; }
-}
 
 .spinner { display: inline-block; animation: pulse 1s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .5 } }

@@ -2,7 +2,7 @@
   <header class="header">
     <img src="assets/logo.png" alt="logo" class="logo-img" />
     <span class="logo">PDF Merger</span>
-    <p class="subtitle">Unisci più file PDF in un unico documento</p>
+    <p class="subtitle">Unisci PDF o converti immagini in un unico PDF</p>
   </header>
 
   <main class="container">
@@ -21,9 +21,9 @@
       tabindex="0"
       >
       <span class="drop-icon">⬆️</span>
-      <p class="drop-text">Trascina qui i tuoi PDF oppure <strong>clicca per selezionarli</strong></p>
-      <p class="drop-hint">Solo file .pdf — puoi aggiungerne quanti vuoi</p>
-      <input #fileInput type="file" accept="application/pdf" multiple (change)="onFileSelected($event)" hidden />
+      <p class="drop-text">Trascina qui PDF, PNG o JPEG oppure <strong>clicca per selezionarli</strong></p>
+      <p class="drop-hint">Formati supportati: .pdf, .png, .jpg, .jpeg</p>
+      <input #fileInput type="file" accept="application/pdf,image/png,image/jpeg,.jpg,.jpeg" multiple (change)="onFileSelected($event)" hidden />
     </div>
 
     <!-- Error -->
@@ -67,34 +67,14 @@
     }
 
     <!-- Actions -->
-    @if (files.length >= 2) {
+    @if (files.length > 0) {
       <div class="actions">
         <button class="btn btn-primary" (click)="mergePdfs()" [disabled]="isMerging">
           @if (!isMerging) {
-            <span>🔗 Unisci PDF</span>
+            <span>🔗 Genera e scarica PDF</span>
           }
           @if (isMerging) {
-            <span class="spinner">⏳ Unione in corso…</span>
-          }
-        </button>
-      </div>
-    }
-
-    @if (files.length === 1) {
-      <p class="hint">Aggiungi almeno un altro PDF per poter unire.</p>
-    }
-
-    <!-- Success -->
-    @if (mergedPdfUrl) {
-      <div class="success-panel">
-        <span class="success-icon">✅</span>
-        <p>PDF unito con successo! Scaricalo ora.</p>
-        <button class="btn btn-download" (click)="downloadMerged()" [disabled]="isPreparingDownload">
-          @if (!isPreparingDownload) {
-            <span>⬇️ Scarica PDF</span>
-          }
-          @if (isPreparingDownload) {
-            <span class="spinner">⏳ Preparazione…</span>
+            <span class="spinner">⏳ Elaborazione in corso…</span>
           }
         </button>
       </div>
