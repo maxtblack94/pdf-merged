@@ -2,7 +2,7 @@
   <header class="header">
     <img src="assets/logo.png" alt="logo" class="logo-img" />
     <span class="logo">PDF Merger</span>
-    <p class="subtitle">Unisci PDF o converti immagini in un unico PDF</p>
+    <p class="subtitle">Unisci PDF o converti immagini/Word in un unico PDF</p>
   </header>
 
   <main class="container">
@@ -21,9 +21,9 @@
       tabindex="0"
       >
       <span class="drop-icon">⬆️</span>
-      <p class="drop-text">Trascina qui PDF, PNG o JPEG oppure <strong>clicca per selezionarli</strong></p>
-      <p class="drop-hint">Formati supportati: .pdf, .png, .jpg, .jpeg</p>
-      <input #fileInput type="file" accept="application/pdf,image/png,image/jpeg,.jpg,.jpeg" multiple (change)="onFileSelected($event)" hidden />
+      <p class="drop-text">Trascina qui PDF, PNG, JPEG, DOC o DOCX oppure <strong>clicca per selezionarli</strong></p>
+      <p class="drop-hint">Formati supportati: .pdf, .png, .jpg, .jpeg, .doc, .docx</p>
+      <input #fileInput type="file" accept="application/pdf,image/png,image/jpeg,.jpg,.jpeg,application/msword,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx" multiple (change)="onFileSelected($event)" hidden />
     </div>
 
     <!-- Error -->

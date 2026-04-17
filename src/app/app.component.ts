@@ -1,4 +1,21 @@
 import { ChangeDetectorRef, Component, NgZone, inject } from '@angular/core';
+import { PDFDocument, PDFFont, StandardFonts, rgb } from 'pdf-lib';
+import JSZip from 'jszip';
+
+interface ConvertDocRequest {
+  fileName: string;
+  bytes: ArrayBuffer;
+}
+
+interface ElectronApi {
+  convertDocToPdf: (request: ConvertDocRequest) => Promise<ArrayBuffer | Uint8Array>;
+}
+
+declare global {
+  interface Window {
+    electronApi?: ElectronApi;
+  }
+}
 
 interface MergeWorkerFilePayload {
   name: string;
@@ -27,7 +44,16 @@ type MergeWorkerResponse = MergeWorkerSuccessResponse | MergeWorkerErrorResponse
 })
 export class AppComponent {
   private readonly mergeWorkerTimeoutMs = 5 * 60 * 1000;
-  private readonly supportedInputMimeTypes = new Set(['application/pdf', 'image/png', 'image/jpeg']);
+  private readonly docMimeType = 'application/msword';
+  private readonly docxMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  private readonly supportedInputMimeTypes = new Set([
+    'application/pdf',
+    'image/png',
+    'image/jpeg',
+    this.docMimeType,
+    'application/vnd.ms-word',
+    this.docxMimeType
+  ]);
   private readonly zone = inject(NgZone);
   private readonly cdr = inject(ChangeDetectorRef);
 
@@ -68,7 +94,7 @@ export class AppComponent {
   private addFiles(newFiles: File[]): void {
     const acceptedFiles = newFiles.filter(file => this.isSupportedInputFile(file));
     const rejected = newFiles.length - acceptedFiles.length;
-    this.errorMessage = rejected > 0 ? `${rejected} file/i ignorati: sono accettati solo PDF, PNG o JPEG.` : null;
+    this.errorMessage = rejected > 0 ? `${rejected} file/i ignorati: sono accettati solo PDF, PNG, JPEG, DOC o DOCX.` : null;
     this.files = [...this.files, ...acceptedFiles];
   }
 
@@ -142,11 +168,7 @@ export class AppComponent {
     }
 
     const files = await Promise.all(
-      inputFiles.map(async file => ({
-        name: file.name,
-        mimeType: this.resolveSupportedMimeType(file),
-        bytes: await file.arrayBuffer()
-      }))
+      inputFiles.map(file => this.prepareFileForMerge(file))
     );
 
     const worker = new Worker(new URL('./app.worker', import.meta.url), { type: 'module' });
@@ -224,6 +246,33 @@ export class AppComponent {
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   }
 
+  private async prepareFileForMerge(file: File): Promise<MergeWorkerFilePayload> {
+    const mimeType = this.resolveSupportedMimeType(file);
+    if (mimeType === this.docMimeType) {
+      const convertedPdfBytes = await this.convertDocToPdf(file);
+      return {
+        name: this.toPdfFileName(file.name),
+        mimeType: 'application/pdf',
+        bytes: this.toArrayBuffer(convertedPdfBytes)
+      };
+    }
+
+    if (mimeType === this.docxMimeType) {
+      const convertedPdfBytes = await this.convertDocxToPdf(file);
+      return {
+        name: this.toPdfFileName(file.name),
+        mimeType: 'application/pdf',
+        bytes: this.toArrayBuffer(convertedPdfBytes)
+      };
+    }
+
+    return {
+      name: file.name,
+      mimeType,
+      bytes: await file.arrayBuffer()
+    };
+  }
+
   private isSupportedInputFile(file: File): boolean {
     const mimeType = file.type.toLowerCase();
     if (this.supportedInputMimeTypes.has(mimeType)) {
@@ -234,13 +283,18 @@ export class AppComponent {
     return fileName.endsWith('.pdf')
       || fileName.endsWith('.png')
       || fileName.endsWith('.jpg')
-      || fileName.endsWith('.jpeg');
+      || fileName.endsWith('.jpeg')
+      || fileName.endsWith('.doc')
+      || fileName.endsWith('.docx');
   }
 
   private resolveSupportedMimeType(file: File): string {
     const mimeType = file.type.toLowerCase();
     if (mimeType === 'image/jpg') {
       return 'image/jpeg';
+    }
+    if (mimeType === 'application/vnd.ms-word') {
+      return this.docMimeType;
     }
     if (this.supportedInputMimeTypes.has(mimeType)) {
       return mimeType;
@@ -256,8 +310,175 @@ export class AppComponent {
     if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) {
       return 'image/jpeg';
     }
+    if (fileName.endsWith('.doc')) {
+      return this.docMimeType;
+    }
+    if (fileName.endsWith('.docx')) {
+      return this.docxMimeType;
+    }
 
-    throw new Error(`Formato non supportato per "${file.name}". Sono accettati PDF, PNG o JPEG.`);
+    throw new Error(`Formato non supportato per "${file.name}". Sono accettati PDF, PNG, JPEG, DOC o DOCX.`);
+  }
+
+  private toPdfFileName(fileName: string): string {
+    const lowerName = fileName.toLowerCase();
+    if (lowerName.endsWith('.doc')) {
+      return `${fileName.slice(0, -4)}.pdf`;
+    }
+    if (lowerName.endsWith('.docx')) {
+      return `${fileName.slice(0, -5)}.pdf`;
+    }
+    return `${fileName}.pdf`;
+  }
+
+  private async convertDocToPdf(file: File): Promise<Uint8Array> {
+    const electronApi = window.electronApi;
+    if (!electronApi || typeof electronApi.convertDocToPdf !== 'function') {
+      throw new Error('La conversione dei file .doc è disponibile solo nell’app desktop Windows.');
+    }
+
+    try {
+      const converted = await electronApi.convertDocToPdf({
+        fileName: file.name,
+        bytes: await file.arrayBuffer()
+      });
+      return converted instanceof Uint8Array ? converted : new Uint8Array(converted);
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : 'errore sconosciuto';
+      throw new Error(`Impossibile convertire "${file.name}" in PDF: ${reason}`);
+    }
+  }
+
+  private async convertDocxToPdf(file: File): Promise<Uint8Array> {
+    try {
+      const zip = await JSZip.loadAsync(await file.arrayBuffer());
+      const documentXmlFile = zip.file('word/document.xml');
+      if (!documentXmlFile) {
+        throw new Error('struttura DOCX non valida.');
+      }
+
+      const documentXml = await documentXmlFile.async('string');
+      const paragraphs = this.extractDocxParagraphs(documentXml);
+      const pdfDocument = await PDFDocument.create();
+      const font = await pdfDocument.embedFont(StandardFonts.Helvetica);
+      this.writeTextAsPdfPages(pdfDocument, font, paragraphs);
+      return await pdfDocument.save({
+        useObjectStreams: true,
+        addDefaultPage: false
+      });
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : 'errore sconosciuto';
+      throw new Error(`Impossibile convertire "${file.name}" in PDF: ${reason}`);
+    }
+  }
+
+  private extractDocxParagraphs(documentXml: string): string[] {
+    const xmlDocument = new DOMParser().parseFromString(documentXml, 'application/xml');
+    const parserErrors = xmlDocument.getElementsByTagName('parsererror');
+    if (parserErrors.length > 0) {
+      throw new Error('contenuto DOCX non leggibile.');
+    }
+
+    const paragraphs = Array.from(xmlDocument.getElementsByTagName('w:p')).map(paragraph => {
+      const textNodes = Array.from(paragraph.getElementsByTagName('w:t'));
+      return textNodes.map(node => node.textContent ?? '').join('');
+    });
+
+    return paragraphs.length > 0 ? paragraphs : ['Documento Word senza testo leggibile.'];
+  }
+
+  private writeTextAsPdfPages(document: PDFDocument, font: PDFFont, paragraphs: string[]): void {
+    const pageWidth = 595.28;
+    const pageHeight = 841.89;
+    const margin = 50;
+    const fontSize = 11;
+    const lineHeight = 15;
+    const maxLineWidth = pageWidth - (margin * 2);
+
+    let page = document.addPage([pageWidth, pageHeight]);
+    let cursorY = pageHeight - margin;
+
+    for (const paragraph of paragraphs) {
+      const lines = this.wrapTextForPdf(paragraph, font, fontSize, maxLineWidth);
+      for (const line of lines) {
+        if (cursorY <= margin + lineHeight) {
+          page = document.addPage([pageWidth, pageHeight]);
+          cursorY = pageHeight - margin;
+        }
+        if (line.length > 0) {
+          page.drawText(line, {
+            x: margin,
+            y: cursorY,
+            size: fontSize,
+            font,
+            color: rgb(0.12, 0.12, 0.12)
+          });
+        }
+        cursorY -= lineHeight;
+      }
+      cursorY -= lineHeight * 0.35;
+    }
+  }
+
+  private wrapTextForPdf(text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] {
+    if (text.trim().length === 0) {
+      return [''];
+    }
+
+    const words = text.split(/\s+/);
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (const word of words) {
+      const nextLine = currentLine ? `${currentLine} ${word}` : word;
+      if (font.widthOfTextAtSize(nextLine, fontSize) <= maxWidth) {
+        currentLine = nextLine;
+        continue;
+      }
+
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+
+      if (font.widthOfTextAtSize(word, fontSize) <= maxWidth) {
+        currentLine = word;
+        continue;
+      }
+
+      const chunks = this.splitLongWordForPdf(word, font, fontSize, maxWidth);
+      lines.push(...chunks.slice(0, -1));
+      currentLine = chunks[chunks.length - 1] ?? '';
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines.length > 0 ? lines : [''];
+  }
+
+  private splitLongWordForPdf(word: string, font: PDFFont, fontSize: number, maxWidth: number): string[] {
+    const chunks: string[] = [];
+    let currentChunk = '';
+
+    for (const char of word) {
+      const nextChunk = `${currentChunk}${char}`;
+      if (font.widthOfTextAtSize(nextChunk, fontSize) <= maxWidth) {
+        currentChunk = nextChunk;
+        continue;
+      }
+
+      if (currentChunk) {
+        chunks.push(currentChunk);
+      }
+      currentChunk = char;
+    }
+
+    if (currentChunk) {
+      chunks.push(currentChunk);
+    }
+
+    return chunks.length > 0 ? chunks : [word];
   }
 
   private async sleep(ms: number): Promise<void> {
@@ -267,6 +488,9 @@ export class AppComponent {
   private formatMergeError(error: unknown): string {
     const message = error instanceof Error ? error.message : '';
     if (message.startsWith('Formato non supportato')) {
+      return message;
+    }
+    if (message.startsWith('Impossibile convertire')) {
       return message;
     }
     if (message.startsWith('Impossibile leggere')) {
