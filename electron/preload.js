@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const DOC_CONVERSION_CHANNEL = 'convert-doc-to-pdf';
+const APP_VERSION_CHANNEL = 'get-app-version';
 
 function normalizeBytes(bytes) {
   if (bytes instanceof Uint8Array) {
@@ -34,5 +35,9 @@ contextBridge.exposeInMainWorld('electronApi', {
     const bytes = normalizeBytes(request?.bytes);
     const result = await ipcRenderer.invoke(DOC_CONVERSION_CHANNEL, { fileName, bytes });
     return normalizeResultBytes(result);
+  },
+  async getAppVersion() {
+    const version = await ipcRenderer.invoke(APP_VERSION_CHANNEL);
+    return typeof version === 'string' ? version : '';
   },
 });

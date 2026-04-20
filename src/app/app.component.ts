@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, NgZone, inject } from '@angular/core';
+import { ChangeDetectorRef, Component, NgZone, OnInit, inject } from '@angular/core';
 import { PDFDocument, PDFFont, StandardFonts, rgb } from 'pdf-lib';
 import JSZip from 'jszip';
 
@@ -9,6 +9,7 @@ interface ConvertDocRequest {
 
 interface ElectronApi {
   convertDocToPdf: (request: ConvertDocRequest) => Promise<ArrayBuffer | Uint8Array>;
+  getAppVersion?: () => Promise<string>;
 }
 
 declare global {
@@ -44,6 +45,7 @@ const LOCALIZED_TEXT = {
   it: {
     subtitle: 'Unisci PDF o converti immagini/Word in un unico PDF',
     language: 'Lingua',
+    version: 'Versione',
     logoAlt: 'Logo PDF Merger',
     dropTextStart: 'Trascina qui PDF, PNG, JPEG, DOC o DOCX oppure',
     dropTextStrong: 'clicca per selezionarli',
@@ -100,6 +102,7 @@ const LOCALIZED_TEXT = {
   en: {
     subtitle: 'Merge PDFs or convert images/Word files into one PDF',
     language: 'Language',
+    version: 'Version',
     logoAlt: 'PDF Merger logo',
     dropTextStart: 'Drag PDF, PNG, JPEG, DOC or DOCX files here or',
     dropTextStrong: 'click to select them',
@@ -163,7 +166,7 @@ type LocalizedTextKey = keyof typeof LOCALIZED_TEXT.it;
     styleUrls: ['./app.component.scss'],
     standalone: false
 })
-export class AppComponent {
+export class AppComponent implements OnInit {
   private readonly mergeWorkerTimeoutMs = 5 * 60 * 1000;
   private readonly lowQualityImageMaxDimension = 1600;
   private readonly lowQualityJpegQuality = 0.62;
@@ -181,6 +184,7 @@ export class AppComponent {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly textMap = LOCALIZED_TEXT;
   readonly supportLink = 'https://ko-fi.com/massimolanera';
+  appVersion = '1.0.0';
 
 
   files: File[] = [];
@@ -195,6 +199,10 @@ export class AppComponent {
   // drag-to-reorder state
   dragSrcIndex: number | null = null;
   dragOverIndex: number | null = null;
+
+  ngOnInit(): void {
+    void this.loadAppVersion();
+  }
 
   async onFileSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
@@ -303,6 +311,22 @@ export class AppComponent {
 
   hasSupportLink(): boolean {
     return /^https?:\/\/.+/i.test(this.supportLink);
+  }
+
+  private async loadAppVersion(): Promise<void> {
+    const electronApi = window.electronApi;
+    if (!electronApi || typeof electronApi.getAppVersion !== 'function') {
+      return;
+    }
+
+    try {
+      const version = await electronApi.getAppVersion();
+      if (typeof version === 'string' && version.trim().length > 0) {
+        this.appVersion = version.trim();
+      }
+    } catch {
+      // Keep fallback version in case the desktop bridge is unavailable.
+    }
   }
 
   openDownloadOptions(): void {

@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 let win;
 const DOC_CONVERSION_CHANNEL = 'convert-doc-to-pdf';
+const APP_VERSION_CHANNEL = 'get-app-version';
 
 function resolveAppIconPath() {
   const candidates = app.isPackaged
@@ -62,6 +63,7 @@ function registerIpcHandlers() {
   ipcMain.handle(DOC_CONVERSION_CHANNEL, async (_event, payload) => {
     return convertDocToPdf(payload);
   });
+  ipcMain.handle(APP_VERSION_CHANNEL, () => app.getVersion());
 }
 
 async function convertDocToPdf(payload) {
