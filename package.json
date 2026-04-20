@@ -63,7 +63,7 @@
     "angular-eslint": "^21.3.1",
     "codelyzer": "^6.0.0",
     "concurrently": "^9.2.1",
-    "electron": "^13.6.9",
+    "electron": "^30.5.1",
     "electron-builder": "^22.14.13",
     "eslint": "^9.39.4",
     "jasmine-core": "~3.6.0",

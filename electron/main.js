@@ -3,26 +3,37 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const url = require('url');
-
 let win;
 const DOC_CONVERSION_CHANNEL = 'convert-doc-to-pdf';
 
 function resolveAppIconPath() {
-  const preferredIconPath = app.isPackaged
-    ? path.join(__dirname, '../dist/pdf-merger/assets/icon.ico')
-    : path.join(__dirname, '../src/assets/icon.ico');
-  if (fs.existsSync(preferredIconPath)) {
-    return preferredIconPath;
-  }
+  const candidates = app.isPackaged
+    ? [
+      path.join(__dirname, '../dist/pdf-merger/browser/assets/icon.ico'),
+      path.join(__dirname, '../dist/pdf-merger/assets/icon.ico'),
+      path.join(__dirname, '../dist/pdf-merger/browser/assets/icon.png'),
+      path.join(__dirname, '../dist/pdf-merger/assets/icon.png'),
+    ]
+    : [
+      path.join(__dirname, '../src/assets/icon.ico'),
+      path.join(__dirname, '../src/assets/icon.png'),
+    ];
 
-  return app.isPackaged
-    ? path.join(__dirname, '../dist/pdf-merger/assets/icon.png')
-    : path.join(__dirname, '../src/assets/icon.png');
+  const found = candidates.find(iconPath => fs.existsSync(iconPath));
+  return found || candidates[candidates.length - 1];
 }
 
 function resolvePreloadPath() {
   return path.join(__dirname, 'preload.js');
+}
+
+function resolveRendererIndexPath() {
+  const candidates = [
+    path.join(__dirname, '../dist/pdf-merger/browser/index.html'),
+    path.join(__dirname, '../dist/pdf-merger/index.html'),
+  ];
+  const found = candidates.find(indexPath => fs.existsSync(indexPath));
+  return found || candidates[0];
 }
 
 function createWindow() {
@@ -41,13 +52,7 @@ function createWindow() {
     backgroundColor: '#1a1a2e',
   });
 
-  win.loadURL(
-    url.format({
-      pathname: path.join(__dirname, '../dist/pdf-merger/index.html'),
-      protocol: 'file:',
-      slashes: true,
-    })
-  );
+  win.loadFile(resolveRendererIndexPath());
 
   win.setMenuBarVisibility(false);
   win.on('closed', () => { win = null; });
