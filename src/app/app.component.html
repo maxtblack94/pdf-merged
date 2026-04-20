@@ -137,4 +137,32 @@
     }
 
   </main>
+
+  <footer class="footer">
+    <div class="footer-grid">
+      <section class="footer-card">
+        <h4>🔒 {{ text('footerPrivacyTitle') }}</h4>
+        <p>{{ text('footerPrivacyText') }}</p>
+      </section>
+
+      <section class="footer-card">
+        <h4>💻 {{ text('footerDeveloperTitle') }}</h4>
+        <p>{{ text('footerDeveloperText') }}</p>
+      </section>
+
+      <section class="footer-card">
+        <h4>☕ {{ text('footerSupportTitle') }}</h4>
+        <p>{{ text('footerSupportText') }}</p>
+        @if (hasSupportLink()) {
+          <a class="support-link" [href]="supportLink" target="_blank" rel="noopener noreferrer">
+            {{ text('footerSupportCta') }}
+          </a>
+        } @else {
+          <span class="support-link disabled">{{ text('footerSupportCta') }}</span>
+        }
+      </section>
+    </div>
+
+    <p class="footer-bottom">{{ text('footerCopyright') }}</p>
+  </footer>
 </div>

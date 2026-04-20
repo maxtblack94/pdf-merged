@@ -257,5 +257,66 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
   }
 }
 
+.footer {
+  width: 100%;
+  max-width: 680px;
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: #cbd5e0;
+  font-size: .82rem;
+  line-height: 1.5;
+
+  .footer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: .75rem;
+  }
+
+  .footer-card {
+    padding: .2rem .25rem;
+  }
+
+  h4 {
+    font-size: .88rem;
+    color: #ebf8ff;
+    margin-bottom: .35rem;
+    font-weight: 700;
+  }
+
+  p {
+    color: #cbd5e0;
+  }
+
+  .support-link {
+    display: inline-block;
+    margin-top: .45rem;
+    text-decoration: none;
+    background: #f6e05e;
+    color: #1a202c;
+    padding: .38rem .75rem;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: .76rem;
+    border: 1px solid rgba(0,0,0,.12);
+  }
+
+  .support-link.disabled {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+
+  .footer-bottom {
+    margin-top: .85rem;
+    padding-top: .7rem;
+    border-top: 1px solid rgba(255,255,255,.14);
+    text-align: center;
+    font-size: .74rem;
+    color: #a0aec0;
+  }
+}
+
 .spinner { display: inline-block; animation: pulse 1s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .5 } }

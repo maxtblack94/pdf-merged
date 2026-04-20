@@ -87,7 +87,15 @@ const LOCALIZED_TEXT = {
     passwordProtectedError: 'Errore durante il merge. Uno dei PDF sembra protetto da password.',
     processingError: 'Errore durante l\'elaborazione dei file. Verifica che non siano corrotti o protetti.',
     selectedFilesSingular: 'file selezionato',
-    selectedFilesPlural: 'file selezionati'
+    selectedFilesPlural: 'file selezionati',
+    footerPrivacyTitle: 'Privacy e sicurezza',
+    footerPrivacyText: 'Nessun dato sensibile o privato contenuto negli allegati viene salvato. I file sono elaborati solo per la generazione del PDF e non sono condivisi con terze parti.',
+    footerDeveloperTitle: 'Produttore del sito',
+    footerDeveloperText: 'Massimo Lanera (persona fisica privata, non azienda).',
+    footerSupportTitle: 'Supporto',
+    footerSupportText: 'Se il tool ti è utile, puoi supportare il progetto.',
+    footerSupportCta: 'Offrimi un caffè',
+    footerCopyright: '© 2026 Massimo Lanera | Conforme al GDPR UE'
   },
   en: {
     subtitle: 'Merge PDFs or convert images/Word files into one PDF',
@@ -135,7 +143,15 @@ const LOCALIZED_TEXT = {
     passwordProtectedError: 'Merge error. One of the PDFs appears to be password protected.',
     processingError: 'Error while processing files. Check that files are not corrupted or protected.',
     selectedFilesSingular: 'selected file',
-    selectedFilesPlural: 'selected files'
+    selectedFilesPlural: 'selected files',
+    footerPrivacyTitle: 'Privacy & security',
+    footerPrivacyText: 'No sensitive or private data contained in attachments is stored. Files are processed only to generate the requested PDF and are not shared with third parties.',
+    footerDeveloperTitle: 'Site producer',
+    footerDeveloperText: 'Massimo Lanera (private individual, not a company).',
+    footerSupportTitle: 'Support',
+    footerSupportText: 'If this tool is useful to you, you can support the project.',
+    footerSupportCta: 'Buy me a coffee',
+    footerCopyright: '© 2026 Massimo Lanera | EU GDPR compliant'
   }
 } as const;
 
@@ -164,6 +180,8 @@ export class AppComponent {
   private readonly zone = inject(NgZone);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly textMap = LOCALIZED_TEXT;
+  readonly supportLink = 'https://ko-fi.com/massimolanera';
+
 
   files: File[] = [];
   selectedLanguage: AppLanguage = 'it';
@@ -281,6 +299,10 @@ export class AppComponent {
   selectedFilesLabel(fileCount: number): string {
     const suffix = fileCount === 1 ? this.text('selectedFilesSingular') : this.text('selectedFilesPlural');
     return `${fileCount} ${suffix}`;
+  }
+
+  hasSupportLink(): boolean {
+    return /^https?:\/\/.+/i.test(this.supportLink);
   }
 
   openDownloadOptions(): void {
