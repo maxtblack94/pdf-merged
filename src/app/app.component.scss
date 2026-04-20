@@ -12,9 +12,29 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
 }
 
 .header {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
   text-align: center;
   margin-bottom: 2rem;
+  padding-top: 2.1rem;
   color: #fff;
+
+  .language-switch {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+
+    .language-label {
+      color: #a0aec0;
+      font-size: .8rem;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+  }
 
   .logo-img {
     width: 300px;
@@ -35,6 +55,17 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
     margin-top: .4rem;
     color: #a0aec0;
     font-size: .95rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .header {
+    padding-top: 2.5rem;
+
+    .language-switch {
+      right: .2rem;
+      gap: .35rem;
+    }
   }
 }
 
@@ -194,6 +225,11 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
     color: #a0aec0;
     border: 1px solid rgba(255,255,255,.15);
     &:hover { background: rgba(255,255,255,.08); color: #e2e8f0; }
+    &.active {
+      background: rgba(99,179,237,.2);
+      border-color: rgba(99,179,237,.8);
+      color: #ebf8ff;
+    }
   }
 
   &.btn-sm { padding: .35rem .8rem; font-size: .8rem; }

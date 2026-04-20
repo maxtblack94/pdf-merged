@@ -12,6 +12,7 @@ interface MergeWorkerRequest {
   type: 'merge';
   files: MergeWorkerFileInput[];
   quality: 'high' | 'low';
+  language: 'it' | 'en';
 }
 
 interface MergeWorkerSuccessResponse {
@@ -25,38 +26,78 @@ interface MergeWorkerErrorResponse {
 }
 
 const COPY_CHUNK_SIZE = 25;
+const WORKER_TEXT = {
+  it: {
+    invalidRequest: 'Richiesta worker non valida.',
+    invalidQuality: 'Qualità download non valida.',
+    mergeError: 'Errore durante il merge.',
+    unsupportedFormat: 'Formato non supportato per "{fileName}". Sono accettati PDF, PNG o JPEG.',
+    readFileError: 'Impossibile leggere "{fileName}": {reason}',
+    unknownError: 'errore sconosciuto'
+  },
+  en: {
+    invalidRequest: 'Invalid worker request.',
+    invalidQuality: 'Invalid download quality.',
+    mergeError: 'Error during merge.',
+    unsupportedFormat: 'Unsupported format for "{fileName}". Accepted formats: PDF, PNG or JPEG.',
+    readFileError: 'Unable to read "{fileName}": {reason}',
+    unknownError: 'unknown error'
+  }
+} as const;
+
+type WorkerLanguage = keyof typeof WORKER_TEXT;
+
+function withPlaceholders(template: string, placeholders: Record<string, string>): string {
+  return Object.entries(placeholders).reduce(
+    (value, [key, replacement]) => value.replace(`{${key}}`, replacement),
+    template
+  );
+}
+
+function readWorkerLanguage(value: unknown): WorkerLanguage {
+  return value === 'en' ? 'en' : 'it';
+}
+
+function text(language: WorkerLanguage, key: keyof typeof WORKER_TEXT.it): string {
+  return WORKER_TEXT[language][key];
+}
 
 addEventListener('message', async ({ data }: MessageEvent<MergeWorkerRequest>) => {
+  const language = readWorkerLanguage(data?.language);
   if (!data || data.type !== 'merge') {
-    postMessage({ type: 'error', message: 'Richiesta worker non valida.' } satisfies MergeWorkerErrorResponse);
+    postMessage({ type: 'error', message: text(language, 'invalidRequest') } satisfies MergeWorkerErrorResponse);
     return;
   }
   if (data.quality !== 'high' && data.quality !== 'low') {
-    postMessage({ type: 'error', message: 'Qualità download non valida.' } satisfies MergeWorkerErrorResponse);
+    postMessage({ type: 'error', message: text(language, 'invalidQuality') } satisfies MergeWorkerErrorResponse);
     return;
   }
 
   try {
-    const mergedBytes = await mergePdfBuffers(data.files, data.quality);
+    const mergedBytes = await mergePdfBuffers(data.files, data.quality, language);
     const transfer = mergedBytes.buffer.slice(
       mergedBytes.byteOffset,
       mergedBytes.byteOffset + mergedBytes.byteLength
     ) as ArrayBuffer;
     postMessage({ type: 'success', mergedBytes: transfer } satisfies MergeWorkerSuccessResponse, [transfer]);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Errore durante il merge.';
+    const message = error instanceof Error ? error.message : text(language, 'mergeError');
     postMessage({ type: 'error', message } satisfies MergeWorkerErrorResponse);
   }
 });
 
-async function mergePdfBuffers(files: MergeWorkerFileInput[], quality: 'high' | 'low'): Promise<Uint8Array> {
+async function mergePdfBuffers(
+  files: MergeWorkerFileInput[],
+  quality: 'high' | 'low',
+  language: WorkerLanguage
+): Promise<Uint8Array> {
   const merged = await PDFDocument.create();
 
   for (const file of files) {
     const mimeType = normalizeMimeType(file.mimeType, file.name);
     const bytes = new Uint8Array(file.bytes);
     if (mimeType === 'application/pdf') {
-      const doc = await loadPdfForMerge(bytes, file.name);
+      const doc = await loadPdfForMerge(bytes, file.name, language);
       const pageIndices = doc.getPageIndices();
 
       for (let start = 0; start < pageIndices.length; start += COPY_CHUNK_SIZE) {
@@ -72,7 +113,7 @@ async function mergePdfBuffers(files: MergeWorkerFileInput[], quality: 'high' | 
       continue;
     }
 
-    throw new Error(`Formato non supportato per "${file.name}". Sono accettati PDF, PNG o JPEG.`);
+    throw new Error(withPlaceholders(text(language, 'unsupportedFormat'), { fileName: file.name }));
   }
 
   return merged.save({
@@ -82,7 +123,7 @@ async function mergePdfBuffers(files: MergeWorkerFileInput[], quality: 'high' | 
   });
 }
 
-async function loadPdfForMerge(bytes: Uint8Array, fileName: string): Promise<PDFDocument> {
+async function loadPdfForMerge(bytes: Uint8Array, fileName: string, language: WorkerLanguage): Promise<PDFDocument> {
   const strategies = [
     () => PDFDocument.load(bytes),
     () => PDFDocument.load(bytes, { ignoreEncryption: true })
@@ -97,8 +138,8 @@ async function loadPdfForMerge(bytes: Uint8Array, fileName: string): Promise<PDF
     }
   }
 
-  const reason = lastError instanceof Error ? lastError.message : 'errore sconosciuto';
-  throw new Error(`Impossibile leggere "${fileName}": ${reason}`);
+  const reason = lastError instanceof Error ? lastError.message : text(language, 'unknownError');
+  throw new Error(withPlaceholders(text(language, 'readFileError'), { fileName, reason }));
 }
 
 async function addImageAsPage(

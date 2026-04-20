@@ -1,8 +1,27 @@
 <div class="app">
   <header class="header">
-    <img src="assets/logo.png" alt="logo" class="logo-img" />
+    <div class="language-switch">
+      <span class="language-label">{{ text('language') }}</span>
+      <button
+        class="btn btn-ghost btn-sm"
+        [class.active]="selectedLanguage === 'it'"
+        (click)="setLanguage('it')"
+        [disabled]="isAddingFiles || isMerging"
+      >
+        IT
+      </button>
+      <button
+        class="btn btn-ghost btn-sm"
+        [class.active]="selectedLanguage === 'en'"
+        (click)="setLanguage('en')"
+        [disabled]="isAddingFiles || isMerging"
+      >
+        EN
+      </button>
+    </div>
+    <img src="assets/logo.png" [attr.alt]="text('logoAlt')" class="logo-img" />
     <span class="logo">PDF Merger</span>
-    <p class="subtitle">Unisci PDF o converti immagini/Word in un unico PDF</p>
+    <p class="subtitle">{{ text('subtitle') }}</p>
   </header>
 
   <main class="container">
@@ -23,13 +42,13 @@
       >
       @if (!isAddingFiles) {
         <span class="drop-icon">⬆️</span>
-        <p class="drop-text">Trascina qui PDF, PNG, JPEG, DOC o DOCX oppure <strong>clicca per selezionarli</strong></p>
-        <p class="drop-hint">Formati supportati: .pdf, .png, .jpg, .jpeg, .doc, .docx</p>
+        <p class="drop-text">{{ text('dropTextStart') }} <strong>{{ text('dropTextStrong') }}</strong></p>
+        <p class="drop-hint">{{ text('supportedFormatsHint') }}</p>
       }
       @if (isAddingFiles) {
         <span class="drop-icon spinner">⏳</span>
-        <p class="drop-text">Caricamento file in corso…</p>
-        <p class="drop-hint">Attendi il completamento.</p>
+        <p class="drop-text">{{ text('loadingFiles') }}</p>
+        <p class="drop-hint">{{ text('waitForCompletion') }}</p>
       }
       <input #fileInput type="file" accept="application/pdf,image/png,image/jpeg,.jpg,.jpeg,application/msword,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx" multiple (change)="onFileSelected($event)" hidden />
     </div>
@@ -43,9 +62,9 @@
     @if (files.length > 0) {
       <div class="file-list">
         <div class="file-list-header">
-          <span>{{ files.length }} file selezionati</span>
-          <span class="drag-hint">☰ Trascina per riordinare</span>
-          <button class="btn btn-ghost btn-sm" (click)="reset()" [disabled]="isAddingFiles || isMerging">🗑 Rimuovi tutti</button>
+          <span>{{ selectedFilesLabel(files.length) }}</span>
+          <span class="drag-hint">☰ {{ text('dragToReorder') }}</span>
+          <button class="btn btn-ghost btn-sm" (click)="reset()" [disabled]="isAddingFiles || isMerging">🗑 {{ text('removeAll') }}</button>
         </div>
         <ul>
           @for (file of files; track file; let i = $index) {
@@ -60,14 +79,14 @@
               (drop)="onItemDrop($event, i)"
               (dragend)="onItemDragEnd()"
               >
-              <span class="drag-handle" title="Trascina per riordinare">⠿</span>
+              <span class="drag-handle" [attr.title]="text('dragToReorder')">⠿</span>
               <span class="file-index">{{ i + 1 }}</span>
               <span class="file-icon">📄</span>
               <div class="file-info">
                 <span class="file-name">{{ file.name }}</span>
                 <span class="file-size">{{ formatSize(file.size) }}</span>
               </div>
-              <button class="btn-remove" (click)="removeFile(i)" [disabled]="isAddingFiles || isMerging" title="Rimuovi">✕</button>
+              <button class="btn-remove" (click)="removeFile(i)" [disabled]="isAddingFiles || isMerging" [attr.title]="text('remove')">✕</button>
             </li>
           }
         </ul>
@@ -80,36 +99,36 @@
         @if (!isChoosingQuality) {
           <button class="btn btn-primary" (click)="openDownloadOptions()" [disabled]="isMerging || isAddingFiles">
             @if (!isMerging && !isAddingFiles) {
-              <span>🔗 Genera PDF</span>
+              <span>🔗 {{ text('generatePdf') }}</span>
             }
             @if (isMerging) {
-              <span class="spinner">⏳ Elaborazione in corso…</span>
+              <span class="spinner">⏳ {{ text('processing') }}</span>
             }
             @if (isAddingFiles) {
-              <span class="spinner">⏳ Caricamento file…</span>
+              <span class="spinner">⏳ {{ text('uploading') }}</span>
             }
           </button>
         }
         @if (isChoosingQuality) {
           <div class="quality-picker">
-            <p class="quality-picker-title">Scegli il tipo di download</p>
+            <p class="quality-picker-title">{{ text('chooseDownloadType') }}</p>
             <div class="quality-picker-actions">
               <button class="btn btn-primary" (click)="downloadMergedPdf('high')" [disabled]="isMerging || isAddingFiles">
                 @if (isMerging && currentQuality === 'high') {
-                  <span class="spinner">⏳ Generazione alta qualità…</span>
+                  <span class="spinner">⏳ {{ text('generatingHighQuality') }}</span>
                 } @else {
-                  <span>⬇️ Alta qualità</span>
+                  <span>⬇️ {{ text('highQuality') }}</span>
                 }
               </button>
               <button class="btn btn-secondary" (click)="downloadMergedPdf('low')" [disabled]="isMerging || isAddingFiles">
                 @if (isMerging && currentQuality === 'low') {
-                  <span class="spinner">⏳ Generazione bassa qualità…</span>
+                  <span class="spinner">⏳ {{ text('generatingLowQuality') }}</span>
                 } @else {
-                  <span>⬇️ Bassa qualità (più leggera)</span>
+                  <span>⬇️ {{ text('lowQuality') }}</span>
                 }
               </button>
               <button class="btn btn-ghost btn-sm" (click)="cancelDownloadOptions()" [disabled]="isMerging || isAddingFiles">
-                Annulla
+                {{ text('cancel') }}
               </button>
             </div>
           </div>
