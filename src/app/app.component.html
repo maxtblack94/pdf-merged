@@ -98,7 +98,7 @@
     @if (files.length > 0) {
       <div class="actions">
         @if (!isChoosingQuality) {
-          <button class="btn btn-primary" (click)="openDownloadOptions()" [disabled]="isMerging || isAddingFiles">
+          <button class="btn btn-primary" (click)="openDownloadOptions()" [disabled]="isMerging || isAddingFiles || isCropChoiceOpen || isCropEditorOpen">
             @if (!isMerging && !isAddingFiles) {
               <span>🔗 {{ text('generatePdf') }}</span>
             }
@@ -114,21 +114,21 @@
           <div class="quality-picker">
             <p class="quality-picker-title">{{ text('chooseDownloadType') }}</p>
             <div class="quality-picker-actions">
-              <button class="btn btn-primary" (click)="downloadMergedPdf('high')" [disabled]="isMerging || isAddingFiles">
+              <button class="btn btn-primary" (click)="downloadMergedPdf('high')" [disabled]="isMerging || isAddingFiles || isCropChoiceOpen || isCropEditorOpen">
                 @if (isMerging && currentQuality === 'high') {
                   <span class="spinner">⏳ {{ text('generatingHighQuality') }}</span>
                 } @else {
                   <span>⬇️ {{ text('highQuality') }}</span>
                 }
               </button>
-              <button class="btn btn-secondary" (click)="downloadMergedPdf('low')" [disabled]="isMerging || isAddingFiles">
+              <button class="btn btn-secondary" (click)="downloadMergedPdf('low')" [disabled]="isMerging || isAddingFiles || isCropChoiceOpen || isCropEditorOpen">
                 @if (isMerging && currentQuality === 'low') {
                   <span class="spinner">⏳ {{ text('generatingLowQuality') }}</span>
                 } @else {
                   <span>⬇️ {{ text('lowQuality') }}</span>
                 }
               </button>
-              <button class="btn btn-ghost btn-sm" (click)="cancelDownloadOptions()" [disabled]="isMerging || isAddingFiles">
+              <button class="btn btn-ghost btn-sm" (click)="cancelDownloadOptions()" [disabled]="isMerging || isAddingFiles || isCropChoiceOpen || isCropEditorOpen">
                 {{ text('cancel') }}
               </button>
             </div>
@@ -138,6 +138,71 @@
     }
 
   </main>
+
+  @if (isCropChoiceOpen) {
+    <div class="modal-overlay">
+      <div class="modal-card">
+        <h3>{{ text('cropChoiceTitle') }}</h3>
+        <p>{{ text('cropChoiceMessage') }}</p>
+        <div class="modal-actions">
+          <button class="btn btn-primary" (click)="chooseCropFlow(true)">{{ text('cropChoiceYes') }}</button>
+          <button class="btn btn-secondary" (click)="chooseCropFlow(false)">{{ text('cropChoiceNo') }}</button>
+          <button class="btn btn-ghost btn-sm" (click)="cancelCropFlow()">{{ text('cropChoiceCancel') }}</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (isCropEditorOpen) {
+    <div class="modal-overlay">
+      <div class="modal-card crop-editor-modal">
+        <div class="modal-title-row">
+          <h3>{{ text('cropEditorTitle') }}</h3>
+          <button class="modal-close-btn" (click)="cancelCropFlow()" [attr.aria-label]="text('cancel')">✕</button>
+        </div>
+        <p class="crop-editor-hint">{{ text('cropEditorHint') }}</p>
+        <p class="crop-editor-meta">{{ currentCropQueueIndex + 1 }} / {{ cropImageIndices.length }} · {{ currentCropFileName() }}</p>
+        <div
+          class="crop-stage"
+          #cropStage
+        >
+          @if (currentCropImageUrl) {
+            <div class="crop-image-shell">
+              <img
+                #cropImage
+                [src]="currentCropImageUrl"
+                [attr.alt]="currentCropFileName()"
+                [style.width.px]="currentCropDisplayWidth || null"
+                [style.height.px]="currentCropDisplayHeight || null"
+                (load)="onCropImageLoad(cropImage, cropStage)"
+                (mousedown)="onCropPointerDown($event, cropImage, cropStage)"
+                (mousemove)="onCropPointerMove($event, cropImage)"
+                (mouseup)="onCropPointerUp()"
+                draggable="false"
+              />
+              @if (currentCropSelection) {
+                <div
+                  class="crop-selection"
+                  [style.left.px]="currentCropSelection.x"
+                  [style.top.px]="currentCropSelection.y"
+                  [style.width.px]="currentCropSelection.width"
+                  [style.height.px]="currentCropSelection.height"
+                ></div>
+              }
+            </div>
+          }
+        </div>
+        @if (cropEditorError) {
+          <div class="alert alert-error">{{ cropEditorError }}</div>
+        }
+        <div class="modal-actions">
+          <button class="btn btn-primary" (click)="applyCurrentCropAndContinue()">{{ text('cropEditorApply') }}</button>
+          <button class="btn btn-secondary" (click)="skipCurrentCropImage()">{{ text('cropEditorSkip') }}</button>
+          <button class="btn btn-warning btn-sm" (click)="resetCurrentCropSelection()">{{ text('cropEditorReset') }}</button>
+        </div>
+      </div>
+    </div>
+  }
 
   <footer class="footer">
     <div class="footer-grid">

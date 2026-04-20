@@ -23,6 +23,12 @@ interface MergeWorkerFilePayload {
   mimeType: string;
   bytes: ArrayBuffer;
 }
+interface CropBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 type AppLanguage = 'it' | 'en';
 type DownloadQuality = 'high' | 'low';
 interface MergeWorkerRequest {
@@ -61,6 +67,18 @@ const LOCALIZED_TEXT = {
     chooseDownloadType: 'Scegli il tipo di download',
     highQuality: 'Alta qualità',
     lowQuality: 'Bassa qualità (più leggera)',
+    cropChoiceTitle: 'Ritaglio immagini',
+    cropChoiceMessage: 'Sono presenti immagini (PNG/JPG/JPEG). Vuoi ritagliarle manualmente prima della conversione in PDF?',
+    cropChoiceYes: 'Sì, ritaglia manualmente',
+    cropChoiceNo: 'No, continua senza ritaglio',
+    cropChoiceCancel: 'Annulla',
+    cropEditorTitle: 'Ritaglio manuale immagini',
+    cropEditorHint: 'Trascina sull’immagine per selezionare l’area da mantenere.',
+    cropEditorSkip: 'Salta (usa originale)',
+    cropEditorApply: 'Applica ritaglio e continua',
+    cropEditorReset: 'Reimposta selezione',
+    cropEditorAbort: 'Annulla ritaglio',
+    cropEditorSelectionTooSmall: 'Seleziona un’area più ampia per applicare il ritaglio.',
     cancel: 'Annulla',
     generatingHighQuality: 'Generazione alta qualità…',
     generatingLowQuality: 'Generazione bassa qualità…',
@@ -118,6 +136,18 @@ const LOCALIZED_TEXT = {
     chooseDownloadType: 'Choose the download type',
     highQuality: 'High quality',
     lowQuality: 'Low quality (smaller file)',
+    cropChoiceTitle: 'Image cropping',
+    cropChoiceMessage: 'Image files (PNG/JPG/JPEG) were found. Do you want to crop them manually before converting to PDF?',
+    cropChoiceYes: 'Yes, crop manually',
+    cropChoiceNo: 'No, continue without cropping',
+    cropChoiceCancel: 'Cancel',
+    cropEditorTitle: 'Manual image crop',
+    cropEditorHint: 'Drag on the image to select the area to keep.',
+    cropEditorSkip: 'Skip (use original)',
+    cropEditorApply: 'Apply crop and continue',
+    cropEditorReset: 'Reset selection',
+    cropEditorAbort: 'Cancel cropping',
+    cropEditorSelectionTooSmall: 'Select a larger area to apply the crop.',
     cancel: 'Cancel',
     generatingHighQuality: 'Generating high quality…',
     generatingLowQuality: 'Generating low quality…',
@@ -170,6 +200,9 @@ export class AppComponent implements OnInit {
   private readonly mergeWorkerTimeoutMs = 5 * 60 * 1000;
   private readonly lowQualityImageMaxDimension = 1600;
   private readonly lowQualityJpegQuality = 0.62;
+  private readonly minCropSelectionPx = 20;
+  private readonly cropAutoScrollMarginPx = 38;
+  private readonly cropAutoScrollMaxStepPx = 20;
   private readonly docMimeType = 'application/msword';
   private readonly docxMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   private readonly supportedInputMimeTypes = new Set([
@@ -192,9 +225,30 @@ export class AppComponent implements OnInit {
   isAddingFiles = false;
   isMerging = false;
   isChoosingQuality = false;
+  isCropChoiceOpen = false;
+  isCropEditorOpen = false;
   errorMessage: string | null = null;
+  cropEditorError: string | null = null;
   isDragOver = false;
   currentQuality: DownloadQuality | null = null;
+  pendingMergeQuality: DownloadQuality | null = null;
+  cropImageIndices: number[] = [];
+  currentCropQueueIndex = 0;
+  currentCropImageUrl: string | null = null;
+  currentCropSelection: CropBounds | null = null;
+  currentCropDisplayWidth = 0;
+  currentCropDisplayHeight = 0;
+  currentCropNaturalWidth = 0;
+  currentCropNaturalHeight = 0;
+  private readonly manualCropByFileIndex = new Map<number, CropBounds>();
+  private isDrawingCropSelection = false;
+  private cropSelectionStartX = 0;
+  private cropSelectionStartY = 0;
+  private activeCropStageElement: HTMLElement | null = null;
+  private activeCropImageElement: HTMLImageElement | null = null;
+  private cropPointerClientX = 0;
+  private cropPointerClientY = 0;
+  private cropAutoScrollFrameId: number | null = null;
 
   // drag-to-reorder state
   dragSrcIndex: number | null = null;
@@ -348,6 +402,155 @@ export class AppComponent implements OnInit {
     if (this.files.length === 0 || this.isMerging || this.isAddingFiles) {
       return;
     }
+    this.errorMessage = null;
+    this.cropEditorError = null;
+    this.pendingMergeQuality = quality;
+    this.manualCropByFileIndex.clear();
+    this.cropImageIndices = this.collectImageFileIndices(this.files);
+    this.currentCropQueueIndex = 0;
+
+    if (this.cropImageIndices.length === 0) {
+      await this.executeMergeAndDownload(quality);
+      return;
+    }
+
+    this.isCropChoiceOpen = true;
+  }
+
+  async chooseCropFlow(applyManualCrop: boolean): Promise<void> {
+    const quality = this.pendingMergeQuality;
+    this.isCropChoiceOpen = false;
+    if (!quality) {
+      return;
+    }
+
+    if (!applyManualCrop) {
+      this.cleanupCropEditor();
+      await this.executeMergeAndDownload(quality);
+      return;
+    }
+
+    if (this.cropImageIndices.length === 0) {
+      this.cleanupCropEditor();
+      await this.executeMergeAndDownload(quality);
+      return;
+    }
+
+    this.isCropEditorOpen = true;
+    this.currentCropQueueIndex = 0;
+    this.loadCurrentCropImage();
+  }
+
+  cancelCropFlow(): void {
+    this.isCropChoiceOpen = false;
+    this.cleanupCropEditor();
+  }
+
+  onCropImageLoad(imageElement: HTMLImageElement, stageElement: HTMLElement): void {
+    this.currentCropNaturalWidth = imageElement.naturalWidth;
+    this.currentCropNaturalHeight = imageElement.naturalHeight;
+    const fitSize = this.fitCropImageToStage(
+      this.currentCropNaturalWidth,
+      this.currentCropNaturalHeight,
+      stageElement
+    );
+    this.currentCropDisplayWidth = fitSize.width;
+    this.currentCropDisplayHeight = fitSize.height;
+    this.currentCropSelection = null;
+    this.cropEditorError = null;
+  }
+
+  onCropPointerDown(event: MouseEvent, imageElement: HTMLImageElement, stageElement: HTMLElement): void {
+    if (!this.isCropEditorOpen || this.isMerging) {
+      return;
+    }
+    event.preventDefault();
+    const point = this.readPointInsideImage(event, imageElement);
+    if (!point) {
+      return;
+    }
+    this.isDrawingCropSelection = true;
+    this.cropSelectionStartX = point.x;
+    this.cropSelectionStartY = point.y;
+    this.activeCropStageElement = stageElement;
+    this.activeCropImageElement = imageElement;
+    this.cropPointerClientX = event.clientX;
+    this.cropPointerClientY = event.clientY;
+    this.currentCropSelection = {
+      x: point.x,
+      y: point.y,
+      width: 0,
+      height: 0
+    };
+    this.cropEditorError = null;
+    this.registerGlobalCropListeners();
+    this.startCropAutoScrollLoop();
+  }
+
+  onCropPointerMove(event: MouseEvent, imageElement: HTMLImageElement): void {
+    if (!this.isDrawingCropSelection) {
+      return;
+    }
+    event.preventDefault();
+    this.cropPointerClientX = event.clientX;
+    this.cropPointerClientY = event.clientY;
+    const point = this.readPointInsideImage(event, imageElement) ?? { x: this.cropSelectionStartX, y: this.cropSelectionStartY };
+    this.currentCropSelection = this.buildSelectionFromPoints(
+      this.cropSelectionStartX,
+      this.cropSelectionStartY,
+      point.x,
+      point.y
+    );
+  }
+
+  onCropPointerUp(): void {
+    this.isDrawingCropSelection = false;
+    this.stopCropAutoScrollLoop();
+    this.unregisterGlobalCropListeners();
+    this.activeCropStageElement = null;
+    this.activeCropImageElement = null;
+  }
+
+  resetCurrentCropSelection(): void {
+    this.currentCropSelection = null;
+    this.cropEditorError = null;
+  }
+
+  skipCurrentCropImage(): void {
+    const fileIndex = this.currentCropFileIndex();
+    if (fileIndex >= 0) {
+      this.manualCropByFileIndex.delete(fileIndex);
+    }
+    this.moveToNextCropImage();
+  }
+
+  applyCurrentCropAndContinue(): void {
+    if (!this.currentCropSelection || !this.isCropSelectionLargeEnough(this.currentCropSelection)) {
+      this.cropEditorError = this.text('cropEditorSelectionTooSmall');
+      return;
+    }
+
+    const fileIndex = this.currentCropFileIndex();
+    if (fileIndex < 0) {
+      this.cropEditorError = this.text('processingError');
+      return;
+    }
+    const cropBounds = this.mapDisplayedSelectionToOriginal(this.currentCropSelection);
+    if (!cropBounds) {
+      this.cropEditorError = this.text('cropEditorSelectionTooSmall');
+      return;
+    }
+
+    this.manualCropByFileIndex.set(fileIndex, cropBounds);
+    this.moveToNextCropImage();
+  }
+
+  currentCropFileName(): string {
+    const fileIndex = this.currentCropFileIndex();
+    return this.files[fileIndex]?.name ?? '';
+  }
+
+  private async executeMergeAndDownload(quality: DownloadQuality): Promise<void> {
     this.isMerging = true;
     this.currentQuality = quality;
     this.errorMessage = null;
@@ -366,13 +569,266 @@ export class AppComponent implements OnInit {
     }
   }
 
+  private collectImageFileIndices(inputFiles: File[]): number[] {
+    const imageIndexes: number[] = [];
+    for (let index = 0; index < inputFiles.length; index += 1) {
+      const mimeType = this.resolveSupportedMimeType(inputFiles[index]);
+      if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
+        imageIndexes.push(index);
+      }
+    }
+    return imageIndexes;
+  }
+
+  private loadCurrentCropImage(): void {
+    this.revokeCurrentCropImageUrl();
+    const file = this.files[this.currentCropFileIndex()];
+    if (!file) {
+      return;
+    }
+    this.currentCropImageUrl = URL.createObjectURL(file);
+    this.currentCropSelection = null;
+    this.currentCropDisplayWidth = 0;
+    this.currentCropDisplayHeight = 0;
+    this.currentCropNaturalWidth = 0;
+    this.currentCropNaturalHeight = 0;
+    this.cropEditorError = null;
+  }
+
+  private moveToNextCropImage(): void {
+    this.currentCropQueueIndex += 1;
+    if (this.currentCropQueueIndex >= this.cropImageIndices.length) {
+      const quality = this.pendingMergeQuality;
+      this.cleanupCropEditor(true);
+      if (quality) {
+        void this.executeMergeAndDownload(quality);
+      }
+      return;
+    }
+
+    this.loadCurrentCropImage();
+  }
+
+  private currentCropFileIndex(): number {
+    return this.cropImageIndices[this.currentCropQueueIndex] ?? -1;
+  }
+
+  private cleanupCropEditor(preserveManualCrops = false): void {
+    this.onCropPointerUp();
+    this.isCropEditorOpen = false;
+    this.pendingMergeQuality = null;
+    this.cropImageIndices = [];
+    this.currentCropQueueIndex = 0;
+    this.currentCropSelection = null;
+    this.currentCropDisplayWidth = 0;
+    this.currentCropDisplayHeight = 0;
+    this.currentCropNaturalWidth = 0;
+    this.currentCropNaturalHeight = 0;
+    this.cropEditorError = null;
+    this.isDrawingCropSelection = false;
+    this.revokeCurrentCropImageUrl();
+    if (!preserveManualCrops) {
+      this.manualCropByFileIndex.clear();
+    }
+  }
+
+  private registerGlobalCropListeners(): void {
+    window.addEventListener('mousemove', this.handleGlobalCropMouseMove);
+    window.addEventListener('mouseup', this.handleGlobalCropMouseUp);
+  }
+
+  private unregisterGlobalCropListeners(): void {
+    window.removeEventListener('mousemove', this.handleGlobalCropMouseMove);
+    window.removeEventListener('mouseup', this.handleGlobalCropMouseUp);
+  }
+
+  private readonly handleGlobalCropMouseMove = (event: MouseEvent): void => {
+    if (!this.isDrawingCropSelection || !this.activeCropImageElement) {
+      return;
+    }
+    this.cropPointerClientX = event.clientX;
+    this.cropPointerClientY = event.clientY;
+    const point = this.readPointInsideImage(event, this.activeCropImageElement, true);
+    if (!point) {
+      return;
+    }
+    this.currentCropSelection = this.buildSelectionFromPoints(
+      this.cropSelectionStartX,
+      this.cropSelectionStartY,
+      point.x,
+      point.y
+    );
+  };
+
+  private readonly handleGlobalCropMouseUp = (): void => {
+    this.onCropPointerUp();
+  };
+
+  private startCropAutoScrollLoop(): void {
+    if (this.cropAutoScrollFrameId !== null) {
+      return;
+    }
+    this.cropAutoScrollFrameId = window.requestAnimationFrame(() => this.runCropAutoScrollLoop());
+  }
+
+  private runCropAutoScrollLoop(): void {
+    if (!this.isDrawingCropSelection || !this.activeCropStageElement || !this.activeCropImageElement) {
+      this.cropAutoScrollFrameId = null;
+      return;
+    }
+
+    const stageRect = this.activeCropStageElement.getBoundingClientRect();
+    let scrollDeltaY = 0;
+    if (this.cropPointerClientY < stageRect.top + this.cropAutoScrollMarginPx) {
+      const distance = (stageRect.top + this.cropAutoScrollMarginPx) - this.cropPointerClientY;
+      scrollDeltaY = -this.computeCropAutoScrollStep(distance);
+    } else if (this.cropPointerClientY > stageRect.bottom - this.cropAutoScrollMarginPx) {
+      const distance = this.cropPointerClientY - (stageRect.bottom - this.cropAutoScrollMarginPx);
+      scrollDeltaY = this.computeCropAutoScrollStep(distance);
+    }
+
+    if (scrollDeltaY !== 0) {
+      this.activeCropStageElement.scrollTop += scrollDeltaY;
+      const point = this.readPointInsideClientPosition(
+        this.cropPointerClientX,
+        this.cropPointerClientY,
+        this.activeCropImageElement,
+        true
+      );
+      if (point) {
+        this.currentCropSelection = this.buildSelectionFromPoints(
+          this.cropSelectionStartX,
+          this.cropSelectionStartY,
+          point.x,
+          point.y
+        );
+      }
+    }
+
+    this.cropAutoScrollFrameId = window.requestAnimationFrame(() => this.runCropAutoScrollLoop());
+  }
+
+  private stopCropAutoScrollLoop(): void {
+    if (this.cropAutoScrollFrameId === null) {
+      return;
+    }
+    window.cancelAnimationFrame(this.cropAutoScrollFrameId);
+    this.cropAutoScrollFrameId = null;
+  }
+
+  private computeCropAutoScrollStep(distancePx: number): number {
+    const ratio = Math.min(1, distancePx / this.cropAutoScrollMarginPx);
+    return Math.max(2, Math.round(this.cropAutoScrollMaxStepPx * ratio));
+  }
+
+  private fitCropImageToStage(
+    naturalWidth: number,
+    naturalHeight: number,
+    stageElement: HTMLElement
+  ): CropBounds {
+    if (naturalWidth <= 0 || naturalHeight <= 0) {
+      return { x: 0, y: 0, width: 1, height: 1 };
+    }
+
+    const stageStyle = window.getComputedStyle(stageElement);
+    const horizontalPadding = (Number.parseFloat(stageStyle.paddingLeft) || 0)
+      + (Number.parseFloat(stageStyle.paddingRight) || 0);
+    const verticalPadding = (Number.parseFloat(stageStyle.paddingTop) || 0)
+      + (Number.parseFloat(stageStyle.paddingBottom) || 0);
+    const maxWidth = Math.max(1, stageElement.clientWidth - horizontalPadding);
+    const maxHeight = Math.max(1, stageElement.clientHeight - verticalPadding);
+    const scale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight, 1);
+
+    return {
+      x: 0,
+      y: 0,
+      width: Math.max(1, Math.floor(naturalWidth * scale)),
+      height: Math.max(1, Math.floor(naturalHeight * scale))
+    };
+  }
+
+  private revokeCurrentCropImageUrl(): void {
+    if (!this.currentCropImageUrl) {
+      return;
+    }
+    URL.revokeObjectURL(this.currentCropImageUrl);
+    this.currentCropImageUrl = null;
+  }
+
+  private readPointInsideImage(
+    event: MouseEvent,
+    imageElement: HTMLImageElement,
+    clampToBounds = false
+  ): { x: number; y: number } | null {
+    return this.readPointInsideClientPosition(event.clientX, event.clientY, imageElement, clampToBounds);
+  }
+
+  private readPointInsideClientPosition(
+    clientX: number,
+    clientY: number,
+    imageElement: HTMLImageElement,
+    clampToBounds = false
+  ): { x: number; y: number } | null {
+    const rect = imageElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    if (
+      !clampToBounds
+      && (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom)
+    ) {
+      return null;
+    }
+    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+    return { x, y };
+  }
+
+  private buildSelectionFromPoints(startX: number, startY: number, endX: number, endY: number): CropBounds {
+    const left = Math.min(startX, endX);
+    const top = Math.min(startY, endY);
+    const width = Math.abs(endX - startX);
+    const height = Math.abs(endY - startY);
+    return { x: left, y: top, width, height };
+  }
+
+  private isCropSelectionLargeEnough(selection: CropBounds): boolean {
+    return selection.width >= this.minCropSelectionPx && selection.height >= this.minCropSelectionPx;
+  }
+
+  private mapDisplayedSelectionToOriginal(selection: CropBounds): CropBounds | null {
+    if (
+      this.currentCropDisplayWidth <= 0
+      || this.currentCropDisplayHeight <= 0
+      || this.currentCropNaturalWidth <= 0
+      || this.currentCropNaturalHeight <= 0
+    ) {
+      return null;
+    }
+
+    const scaleX = this.currentCropNaturalWidth / this.currentCropDisplayWidth;
+    const scaleY = this.currentCropNaturalHeight / this.currentCropDisplayHeight;
+    const x = Math.max(0, Math.floor(selection.x * scaleX));
+    const y = Math.max(0, Math.floor(selection.y * scaleY));
+    const width = Math.max(1, Math.ceil(selection.width * scaleX));
+    const height = Math.max(1, Math.ceil(selection.height * scaleY));
+    const clampedWidth = Math.min(width, this.currentCropNaturalWidth - x);
+    const clampedHeight = Math.min(height, this.currentCropNaturalHeight - y);
+
+    if (clampedWidth <= 0 || clampedHeight <= 0) {
+      return null;
+    }
+
+    return { x, y, width: clampedWidth, height: clampedHeight };
+  }
+
   private async mergeWithWorker(inputFiles: File[], quality: DownloadQuality): Promise<Uint8Array> {
     if (typeof Worker === 'undefined') {
       throw new Error(this.text('workerNotSupported'));
     }
 
     const files = await Promise.all(
-      inputFiles.map(file => this.prepareFileForMerge(file, quality))
+      inputFiles.map((file, index) => this.prepareFileForMerge(file, quality, index))
     );
 
     const worker = new Worker(new URL('./app.worker', import.meta.url), { type: 'module' });
@@ -461,15 +917,11 @@ export class AppComponent implements OnInit {
     }
   }
 
-  private async prepareFileForMerge(file: File, quality: DownloadQuality): Promise<MergeWorkerFilePayload> {
+  private async prepareFileForMerge(file: File, quality: DownloadQuality, fileIndex: number): Promise<MergeWorkerFilePayload> {
     const mimeType = this.resolveSupportedMimeType(file);
 
-    if (quality === 'low' && (mimeType === 'image/png' || mimeType === 'image/jpeg')) {
-      return {
-        name: file.name,
-        mimeType: 'image/jpeg',
-        bytes: await this.optimizeImageForLowQuality(file)
-      };
+    if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
+      return this.prepareImageForMerge(file, mimeType, quality, fileIndex);
     }
 
     if (mimeType === this.docMimeType) {
@@ -497,28 +949,126 @@ export class AppComponent implements OnInit {
     };
   }
 
-  private async optimizeImageForLowQuality(file: File): Promise<ArrayBuffer> {
-    const bitmap = await createImageBitmap(file);
+  private async prepareImageForMerge(
+    file: File,
+    mimeType: 'image/png' | 'image/jpeg',
+    quality: DownloadQuality,
+    fileIndex: number
+  ): Promise<MergeWorkerFilePayload> {
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      if (quality === 'high') {
+        return {
+          name: file.name,
+          mimeType,
+          bytes: await file.arrayBuffer()
+        };
+      }
+      throw new Error(this.text('imageCompressionError'));
+    }
 
     try {
-      const size = this.getScaledDimensions(bitmap.width, bitmap.height, this.lowQualityImageMaxDimension);
-      const canvas = document.createElement('canvas');
-      canvas.width = size.width;
-      canvas.height = size.height;
+      const fullBounds: CropBounds = { x: 0, y: 0, width: bitmap.width, height: bitmap.height };
+      const selectedBounds = this.manualCropByFileIndex.get(fileIndex);
+      const cropBounds = selectedBounds ?? fullBounds;
+      const hasManualCrop = !!selectedBounds;
 
-      const context = canvas.getContext('2d');
-      if (!context) {
-        throw new Error(this.text('canvasCompressionError'));
+      if (quality === 'low') {
+        return {
+          name: file.name,
+          mimeType: 'image/jpeg',
+          bytes: await this.renderBitmapAreaAsJpeg(
+            bitmap,
+            cropBounds,
+            this.lowQualityImageMaxDimension,
+            this.lowQualityJpegQuality
+          )
+        };
       }
 
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, size.width, size.height);
-      context.drawImage(bitmap, 0, 0, size.width, size.height);
-      const blob = await this.canvasToJpegBlob(canvas, this.lowQualityJpegQuality);
-      return await blob.arrayBuffer();
+      if (!hasManualCrop) {
+        return {
+          name: file.name,
+          mimeType,
+          bytes: await file.arrayBuffer()
+        };
+      }
+
+      if (mimeType === 'image/png') {
+        return {
+          name: file.name,
+          mimeType: 'image/png',
+          bytes: await this.renderBitmapAreaAsPng(bitmap, cropBounds)
+        };
+      }
+
+      return {
+        name: file.name,
+        mimeType: 'image/jpeg',
+        bytes: await this.renderBitmapAreaAsJpeg(bitmap, cropBounds, undefined, 0.92)
+      };
     } finally {
       bitmap.close();
     }
+  }
+
+  private async renderBitmapAreaAsPng(bitmap: ImageBitmap, bounds: CropBounds): Promise<ArrayBuffer> {
+    const canvas = document.createElement('canvas');
+    canvas.width = bounds.width;
+    canvas.height = bounds.height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error(this.text('canvasCompressionError'));
+    }
+
+    context.drawImage(bitmap, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+    const blob = await this.canvasToBlob(canvas, 'image/png');
+    return blob.arrayBuffer();
+  }
+
+  private async renderBitmapAreaAsJpeg(
+    bitmap: ImageBitmap,
+    bounds: CropBounds,
+    maxDimension?: number,
+    quality = 0.92
+  ): Promise<ArrayBuffer> {
+    const outputSize = typeof maxDimension === 'number'
+      ? this.getScaledDimensions(bounds.width, bounds.height, maxDimension)
+      : { width: bounds.width, height: bounds.height };
+    const canvas = document.createElement('canvas');
+    canvas.width = outputSize.width;
+    canvas.height = outputSize.height;
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error(this.text('canvasCompressionError'));
+    }
+
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, outputSize.width, outputSize.height);
+    context.drawImage(
+      bitmap,
+      bounds.x,
+      bounds.y,
+      bounds.width,
+      bounds.height,
+      0,
+      0,
+      outputSize.width,
+      outputSize.height
+    );
+    const blob = await this.canvasToJpegBlob(canvas, quality);
+    return blob.arrayBuffer();
+  }
+
+  private async canvasToBlob(canvas: HTMLCanvasElement, mimeType: 'image/png'): Promise<Blob> {
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, mimeType));
+    if (!blob) {
+      throw new Error(this.text('imageCompressionError'));
+    }
+    return blob;
   }
 
   private async canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
@@ -789,6 +1339,8 @@ export class AppComponent implements OnInit {
   }
 
   reset(): void {
+    this.isCropChoiceOpen = false;
+    this.cleanupCropEditor();
     this.files = [];
     this.isAddingFiles = false;
     this.errorMessage = null;
