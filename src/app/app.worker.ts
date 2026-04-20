@@ -11,6 +11,7 @@ interface MergeWorkerFileInput {
 interface MergeWorkerRequest {
   type: 'merge';
   files: MergeWorkerFileInput[];
+  quality: 'high' | 'low';
 }
 
 interface MergeWorkerSuccessResponse {
@@ -30,9 +31,13 @@ addEventListener('message', async ({ data }: MessageEvent<MergeWorkerRequest>) =
     postMessage({ type: 'error', message: 'Richiesta worker non valida.' } satisfies MergeWorkerErrorResponse);
     return;
   }
+  if (data.quality !== 'high' && data.quality !== 'low') {
+    postMessage({ type: 'error', message: 'Qualità download non valida.' } satisfies MergeWorkerErrorResponse);
+    return;
+  }
 
   try {
-    const mergedBytes = await mergePdfBuffers(data.files);
+    const mergedBytes = await mergePdfBuffers(data.files, data.quality);
     const transfer = mergedBytes.buffer.slice(
       mergedBytes.byteOffset,
       mergedBytes.byteOffset + mergedBytes.byteLength
@@ -44,7 +49,7 @@ addEventListener('message', async ({ data }: MessageEvent<MergeWorkerRequest>) =
   }
 });
 
-async function mergePdfBuffers(files: MergeWorkerFileInput[]): Promise<Uint8Array> {
+async function mergePdfBuffers(files: MergeWorkerFileInput[], quality: 'high' | 'low'): Promise<Uint8Array> {
   const merged = await PDFDocument.create();
 
   for (const file of files) {
@@ -71,7 +76,7 @@ async function mergePdfBuffers(files: MergeWorkerFileInput[]): Promise<Uint8Arra
   }
 
   return merged.save({
-    useObjectStreams: true,
+    useObjectStreams: quality === 'low',
     addDefaultPage: false,
     updateFieldAppearances: false
   });

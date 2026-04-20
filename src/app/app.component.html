@@ -77,17 +77,43 @@
     <!-- Actions -->
     @if (files.length > 0) {
       <div class="actions">
-        <button class="btn btn-primary" (click)="mergePdfs()" [disabled]="isMerging || isAddingFiles">
-          @if (!isMerging && !isAddingFiles) {
-            <span>🔗 Genera e scarica PDF</span>
-          }
-          @if (isMerging) {
-            <span class="spinner">⏳ Elaborazione in corso…</span>
-          }
-          @if (isAddingFiles) {
-            <span class="spinner">⏳ Caricamento file…</span>
-          }
-        </button>
+        @if (!isChoosingQuality) {
+          <button class="btn btn-primary" (click)="openDownloadOptions()" [disabled]="isMerging || isAddingFiles">
+            @if (!isMerging && !isAddingFiles) {
+              <span>🔗 Genera PDF</span>
+            }
+            @if (isMerging) {
+              <span class="spinner">⏳ Elaborazione in corso…</span>
+            }
+            @if (isAddingFiles) {
+              <span class="spinner">⏳ Caricamento file…</span>
+            }
+          </button>
+        }
+        @if (isChoosingQuality) {
+          <div class="quality-picker">
+            <p class="quality-picker-title">Scegli il tipo di download</p>
+            <div class="quality-picker-actions">
+              <button class="btn btn-primary" (click)="downloadMergedPdf('high')" [disabled]="isMerging || isAddingFiles">
+                @if (isMerging && currentQuality === 'high') {
+                  <span class="spinner">⏳ Generazione alta qualità…</span>
+                } @else {
+                  <span>⬇️ Alta qualità</span>
+                }
+              </button>
+              <button class="btn btn-secondary" (click)="downloadMergedPdf('low')" [disabled]="isMerging || isAddingFiles">
+                @if (isMerging && currentQuality === 'low') {
+                  <span class="spinner">⏳ Generazione bassa qualità…</span>
+                } @else {
+                  <span>⬇️ Bassa qualità (più leggera)</span>
+                }
+              </button>
+              <button class="btn btn-ghost btn-sm" (click)="cancelDownloadOptions()" [disabled]="isMerging || isAddingFiles">
+                Annulla
+              </button>
+            </div>
+          </div>
+        }
       </div>
     }
 

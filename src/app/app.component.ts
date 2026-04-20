@@ -22,9 +22,11 @@ interface MergeWorkerFilePayload {
   mimeType: string;
   bytes: ArrayBuffer;
 }
+type DownloadQuality = 'high' | 'low';
 interface MergeWorkerRequest {
   type: 'merge';
   files: MergeWorkerFilePayload[];
+  quality: DownloadQuality;
 }
 interface MergeWorkerSuccessResponse {
   type: 'success';
@@ -44,6 +46,8 @@ type MergeWorkerResponse = MergeWorkerSuccessResponse | MergeWorkerErrorResponse
 })
 export class AppComponent {
   private readonly mergeWorkerTimeoutMs = 5 * 60 * 1000;
+  private readonly lowQualityImageMaxDimension = 1600;
+  private readonly lowQualityJpegQuality = 0.62;
   private readonly docMimeType = 'application/msword';
   private readonly docxMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   private readonly supportedInputMimeTypes = new Set([
@@ -60,8 +64,10 @@ export class AppComponent {
   files: File[] = [];
   isAddingFiles = false;
   isMerging = false;
+  isChoosingQuality = false;
   errorMessage: string | null = null;
   isDragOver = false;
+  currentQuality: DownloadQuality | null = null;
 
   // drag-to-reorder state
   dragSrcIndex: number | null = null;
@@ -110,10 +116,12 @@ export class AppComponent {
     const rejected = newFiles.length - acceptedFiles.length;
     this.errorMessage = rejected > 0 ? `${rejected} file/i ignorati: sono accettati solo PDF, PNG, JPEG, DOC o DOCX.` : null;
     this.files = [...this.files, ...acceptedFiles];
+    this.isChoosingQuality = false;
   }
 
   removeFile(index: number): void {
     this.files = this.files.filter((_, i) => i !== index);
+    this.isChoosingQuality = false;
   }
 
   // ── drag-to-reorder handlers ──────────────────────────────────
@@ -156,38 +164,55 @@ export class AppComponent {
     this.dragOverIndex = null;
   }
 
-  async mergePdfs(): Promise<void> {
+  openDownloadOptions(): void {
+    if (this.files.length === 0 || this.isMerging || this.isAddingFiles) {
+      return;
+    }
+    this.errorMessage = null;
+    this.isChoosingQuality = true;
+  }
+
+  cancelDownloadOptions(): void {
+    if (this.isMerging) {
+      return;
+    }
+    this.isChoosingQuality = false;
+  }
+
+  async downloadMergedPdf(quality: DownloadQuality): Promise<void> {
     if (this.files.length === 0 || this.isMerging || this.isAddingFiles) {
       return;
     }
     this.isMerging = true;
+    this.currentQuality = quality;
     this.errorMessage = null;
 
     try {
-      const mergedBytes = await this.mergeWithWorker(this.files);
-      this.triggerDownload(mergedBytes, 'output.pdf');
+      const mergedBytes = await this.mergeWithWorker(this.files, quality);
+      this.triggerDownload(mergedBytes, quality === 'high' ? 'output-alta-qualita.pdf' : 'output-bassa-qualita.pdf');
       await this.sleep(200);
       this.reset();
     } catch (error: unknown) {
       this.errorMessage = this.formatMergeError(error);
     } finally {
       this.isMerging = false;
+      this.currentQuality = null;
       this.cdr.detectChanges();
     }
   }
 
-  private async mergeWithWorker(inputFiles: File[]): Promise<Uint8Array> {
+  private async mergeWithWorker(inputFiles: File[], quality: DownloadQuality): Promise<Uint8Array> {
     if (typeof Worker === 'undefined') {
       throw new Error('Web Worker non supportato dal browser.');
     }
 
     const files = await Promise.all(
-      inputFiles.map(file => this.prepareFileForMerge(file))
+      inputFiles.map(file => this.prepareFileForMerge(file, quality))
     );
 
     const worker = new Worker(new URL('./app.worker', import.meta.url), { type: 'module' });
     const transferableBuffers = files.map(file => file.bytes);
-    const payload: MergeWorkerRequest = { type: 'merge', files };
+    const payload: MergeWorkerRequest = { type: 'merge', files, quality };
 
     return new Promise<Uint8Array>((resolve, reject) => {
       let settled = false;
@@ -271,8 +296,17 @@ export class AppComponent {
     }
   }
 
-  private async prepareFileForMerge(file: File): Promise<MergeWorkerFilePayload> {
+  private async prepareFileForMerge(file: File, quality: DownloadQuality): Promise<MergeWorkerFilePayload> {
     const mimeType = this.resolveSupportedMimeType(file);
+
+    if (quality === 'low' && (mimeType === 'image/png' || mimeType === 'image/jpeg')) {
+      return {
+        name: file.name,
+        mimeType: 'image/jpeg',
+        bytes: await this.optimizeImageForLowQuality(file)
+      };
+    }
+
     if (mimeType === this.docMimeType) {
       const convertedPdfBytes = await this.convertDocToPdf(file);
       return {
@@ -295,6 +329,51 @@ export class AppComponent {
       name: file.name,
       mimeType,
       bytes: await file.arrayBuffer()
+    };
+  }
+
+  private async optimizeImageForLowQuality(file: File): Promise<ArrayBuffer> {
+    const bitmap = await createImageBitmap(file);
+
+    try {
+      const size = this.getScaledDimensions(bitmap.width, bitmap.height, this.lowQualityImageMaxDimension);
+      const canvas = document.createElement('canvas');
+      canvas.width = size.width;
+      canvas.height = size.height;
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('Impossibile preparare il canvas per la compressione delle immagini.');
+      }
+
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, size.width, size.height);
+      context.drawImage(bitmap, 0, 0, size.width, size.height);
+      const blob = await this.canvasToJpegBlob(canvas, this.lowQualityJpegQuality);
+      return await blob.arrayBuffer();
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  private async canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (!blob) {
+      throw new Error('Impossibile convertire un\'immagine in JPEG compresso.');
+    }
+    return blob;
+  }
+
+  private getScaledDimensions(width: number, height: number, maxDimension: number): { width: number; height: number } {
+    const maxCurrentSide = Math.max(width, height);
+    if (maxCurrentSide <= maxDimension) {
+      return { width, height };
+    }
+
+    const scale = maxDimension / maxCurrentSide;
+    return {
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale))
     };
   }
 
@@ -534,7 +613,9 @@ export class AppComponent {
     this.files = [];
     this.isAddingFiles = false;
     this.errorMessage = null;
+    this.isChoosingQuality = false;
     this.isDragOver = false;
+    this.currentQuality = null;
     this.dragSrcIndex = null;
     this.dragOverIndex = null;
   }
