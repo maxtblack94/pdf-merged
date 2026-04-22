@@ -10,12 +10,15 @@ const APP_VERSION_CHANNEL = 'get-app-version';
 function resolveAppIconPath() {
   const candidates = app.isPackaged
     ? [
+      path.join(__dirname, '../dist/pdf-merger/browser/assets/logo-ico.ico'),
+      path.join(__dirname, '../dist/pdf-merger/assets/logo-ico.ico'),
       path.join(__dirname, '../dist/pdf-merger/browser/assets/icon.ico'),
       path.join(__dirname, '../dist/pdf-merger/assets/icon.ico'),
       path.join(__dirname, '../dist/pdf-merger/browser/assets/icon.png'),
       path.join(__dirname, '../dist/pdf-merger/assets/icon.png'),
     ]
     : [
+      path.join(__dirname, '../src/assets/logo-ico.ico'),
       path.join(__dirname, '../src/assets/icon.ico'),
       path.join(__dirname, '../src/assets/icon.png'),
     ];

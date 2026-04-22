@@ -1,6 +1,6 @@
 {
   "name": "pdf-merger",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Unisci più PDF in un unico file",
   "main": "electron/main.js",
   "scripts": {
@@ -9,6 +9,7 @@
     "build": "ng build",
     "build:prod": "ng build --configuration production",
     "electron:dev": "concurrently \"ng serve\" \"wait-on http://localhost:4200 && electron .\"",
+    "preelectron:build": "npm version patch --no-git-tag-version",
     "electron:build": "ng build --configuration production && electron-builder build --win --x64",
     "test": "ng test",
     "lint": "ng lint",
@@ -26,13 +27,13 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "src/assets/icon.ico"
+      "icon": "src/assets/logo-ico.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "src/assets/icon.ico",
-      "uninstallerIcon": "src/assets/icon.ico",
+      "installerIcon": "src/assets/logo-ico.ico",
+      "uninstallerIcon": "src/assets/logo-ico.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
