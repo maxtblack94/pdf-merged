@@ -52,6 +52,8 @@ const LOCALIZED_TEXT = {
     subtitle: 'Unisci PDF o converti immagini/Word in un unico PDF',
     language: 'Lingua',
     version: 'Versione',
+    desktopBannerMessage: 'Stai usando la versione web. Puoi scaricare l’ultima versione desktop per Windows.',
+    desktopBannerCta: 'Scarica desktop (.exe)',
     logoAlt: 'Logo PDF Merger',
     dropTextStart: 'Trascina qui PDF, PNG, JPEG, DOC o DOCX oppure',
     dropTextStrong: 'clicca per selezionarli',
@@ -121,6 +123,8 @@ const LOCALIZED_TEXT = {
     subtitle: 'Merge PDFs or convert images/Word files into one PDF',
     language: 'Language',
     version: 'Version',
+    desktopBannerMessage: 'You are using the web version. You can download the latest desktop version for Windows.',
+    desktopBannerCta: 'Download desktop (.exe)',
     logoAlt: 'PDF Merger logo',
     dropTextStart: 'Drag PDF, PNG, JPEG, DOC or DOCX files here or',
     dropTextStrong: 'click to select them',
@@ -216,8 +220,10 @@ export class AppComponent implements OnInit {
   private readonly zone = inject(NgZone);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly textMap = LOCALIZED_TEXT;
+  readonly desktopDownloadUrl = 'https://github.com/maxtblack94/pdf-merged/releases/latest';
   readonly supportLink = 'https://ko-fi.com/massimolanera';
   appVersion = '1.0.0';
+  isDesktopRuntime = false;
 
 
   files: File[] = [];
@@ -255,6 +261,7 @@ export class AppComponent implements OnInit {
   dragOverIndex: number | null = null;
 
   ngOnInit(): void {
+    this.isDesktopRuntime = this.detectDesktopRuntime();
     void this.loadAppVersion();
   }
 
@@ -367,6 +374,10 @@ export class AppComponent implements OnInit {
     return /^https?:\/\/.+/i.test(this.supportLink);
   }
 
+  hasDesktopDownloadLink(): boolean {
+    return /^https?:\/\/.+/i.test(this.desktopDownloadUrl);
+  }
+
   private async loadAppVersion(): Promise<void> {
     const electronApi = window.electronApi;
     if (!electronApi || typeof electronApi.getAppVersion !== 'function') {
@@ -381,6 +392,16 @@ export class AppComponent implements OnInit {
     } catch {
       // Keep fallback version in case the desktop bridge is unavailable.
     }
+  }
+
+  private detectDesktopRuntime(): boolean {
+    const electronApi = window.electronApi;
+    const hasElectronBridge = !!electronApi
+      && typeof electronApi.getAppVersion === 'function'
+      && typeof electronApi.convertDocToPdf === 'function';
+    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
+    const hasElectronUserAgent = userAgent.includes(' electron/');
+    return hasElectronBridge || hasElectronUserAgent;
   }
 
   openDownloadOptions(): void {

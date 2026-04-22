@@ -1,4 +1,12 @@
 <div class="app">
+  @if (!isDesktopRuntime && hasDesktopDownloadLink()) {
+    <div class="desktop-download-banner">
+      <span class="desktop-download-text">{{ text('desktopBannerMessage') }}</span>
+      <a class="desktop-download-link" [href]="desktopDownloadUrl" target="_blank" rel="noopener noreferrer">
+        {{ text('desktopBannerCta') }}
+      </a>
+    </div>
+  }
   <header class="header">
     <div class="version-badge">{{ text('version') }} {{ appVersion }}</div>
     <div class="language-switch">
