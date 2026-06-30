@@ -1,4 +1,5 @@
-<div class="app">
+<app-maintenance *ngIf="isMaintenance" />
+<div class="app" *ngIf="!isMaintenance">
   @if (!isDesktopRuntime && hasDesktopDownloadLink()) {
     <div class="desktop-download-banner">
       <span class="desktop-download-text">{{ text('desktopBannerMessage') }}</span>

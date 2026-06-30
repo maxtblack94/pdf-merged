@@ -1,6 +1,7 @@
 import { ChangeDetectorRef, Component, NgZone, OnInit, inject } from '@angular/core';
 import { PDFDocument, PDFFont, StandardFonts, rgb } from 'pdf-lib';
 import JSZip from 'jszip';
+import { environment } from '../environments/environment';
 
 interface ConvertDocRequest {
   fileName: string;
@@ -207,6 +208,7 @@ type LocalizedTextKey = keyof typeof LOCALIZED_TEXT.it;
     standalone: false
 })
 export class AppComponent implements OnInit {
+  readonly isMaintenance = environment.maintenance;
   private readonly mergeWorkerTimeoutMs = 5 * 60 * 1000;
   private readonly lowQualityImageMaxDimension = 1600;
   private readonly lowQualityJpegQuality = 0.62;
