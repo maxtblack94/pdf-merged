@@ -1,6 +1,7 @@
 {
   "name": "pdf-merger",
   "version": "1.0.3",
+  "author": "Massimo Lanera",
   "description": "Unisci più PDF in un unico file",
   "main": "electron/main.js",
   "scripts": {

@@ -54,7 +54,7 @@ jobs:
         run: npm run build:prod
 
       - name: Build Electron .exe
-        run: npx electron-builder build --win --x64
+        run: npx electron-builder build --win --x64 --publish never
 
       - name: Get version
         id: pkg
