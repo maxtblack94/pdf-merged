@@ -82,6 +82,9 @@ const LOCALIZED_TEXT = {
     cropEditorAbort: 'Annulla ritaglio',
     cropEditorSelectionTooSmall: 'Seleziona un’area più ampia per applicare il ritaglio.',
     cancel: 'Annulla',
+    downloadSuccessTitle: 'Download completato!',
+    downloadSuccessMessage: 'Il PDF unito è stato scaricato con successo.',
+    downloadSuccessClose: 'Chiudi',
     generatingHighQuality: 'Generazione alta qualità…',
     generatingLowQuality: 'Generazione bassa qualità…',
     outputHighFileName: 'output-alta-qualita.pdf',
@@ -153,6 +156,9 @@ const LOCALIZED_TEXT = {
     cropEditorAbort: 'Cancel cropping',
     cropEditorSelectionTooSmall: 'Select a larger area to apply the crop.',
     cancel: 'Cancel',
+    downloadSuccessTitle: 'Download complete!',
+    downloadSuccessMessage: 'The merged PDF has been downloaded successfully.',
+    downloadSuccessClose: 'Close',
     generatingHighQuality: 'Generating high quality…',
     generatingLowQuality: 'Generating low quality…',
     outputHighFileName: 'output-high-quality.pdf',
@@ -233,6 +239,7 @@ export class AppComponent implements OnInit {
   isChoosingQuality = false;
   isCropChoiceOpen = false;
   isCropEditorOpen = false;
+  isDownloadSuccessOpen = false;
   errorMessage: string | null = null;
   cropEditorError: string | null = null;
   isDragOver = false;
@@ -419,6 +426,11 @@ export class AppComponent implements OnInit {
     this.isChoosingQuality = false;
   }
 
+  closeDownloadSuccess(): void {
+    this.isDownloadSuccessOpen = false;
+    this.reset();
+  }
+
   async downloadMergedPdf(quality: DownloadQuality): Promise<void> {
     if (this.files.length === 0 || this.isMerging || this.isAddingFiles) {
       return;
@@ -580,7 +592,7 @@ export class AppComponent implements OnInit {
       const mergedBytes = await this.mergeWithWorker(this.files, quality);
       this.triggerDownload(mergedBytes, this.outputFileName(quality));
       await this.sleep(200);
-      this.reset();
+      this.isDownloadSuccessOpen = true;
     } catch (error: unknown) {
       this.errorMessage = this.formatMergeError(error);
     } finally {

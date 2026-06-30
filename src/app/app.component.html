@@ -212,6 +212,18 @@
     </div>
   }
 
+  @if (isDownloadSuccessOpen) {
+    <div class="modal-overlay">
+      <div class="modal-card">
+        <h3>✅ {{ text('downloadSuccessTitle') }}</h3>
+        <p>{{ text('downloadSuccessMessage') }}</p>
+        <div class="modal-actions">
+          <button class="btn btn-primary" (click)="closeDownloadSuccess()">{{ text('downloadSuccessClose') }}</button>
+        </div>
+      </div>
+    </div>
+  }
+
   <footer class="footer">
     <div class="footer-grid">
       <section class="footer-card">
