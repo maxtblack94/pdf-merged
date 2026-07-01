@@ -1,4 +1,6 @@
 export const environment = {
   production: true,
-  maintenance: false
+  maintenance: false,
+  showDesktopBannerWeb: false,
+  showDesktopBannerMobile: false
 };

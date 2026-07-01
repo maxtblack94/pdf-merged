@@ -232,6 +232,7 @@ export class AppComponent implements OnInit {
   readonly supportLink = 'https://ko-fi.com/massimolanera';
   appVersion = '1.0.0';
   isDesktopRuntime = false;
+  isMobileDevice = false;
 
 
   files: File[] = [];
@@ -271,6 +272,7 @@ export class AppComponent implements OnInit {
 
   ngOnInit(): void {
     this.isDesktopRuntime = this.detectDesktopRuntime();
+    this.isMobileDevice = this.detectMobileDevice();
     void this.loadAppVersion();
   }
 
@@ -387,6 +389,15 @@ export class AppComponent implements OnInit {
     return /^https?:\/\/.+/i.test(this.desktopDownloadUrl);
   }
 
+  shouldShowDesktopBanner(): boolean {
+    if (this.isDesktopRuntime || !this.hasDesktopDownloadLink()) {
+      return false;
+    }
+    return this.isMobileDevice
+      ? environment.showDesktopBannerMobile
+      : environment.showDesktopBannerWeb;
+  }
+
   private async loadAppVersion(): Promise<void> {
     const electronApi = window.electronApi;
     if (!electronApi || typeof electronApi.getAppVersion !== 'function') {
@@ -411,6 +422,15 @@ export class AppComponent implements OnInit {
     const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
     const hasElectronUserAgent = userAgent.includes(' electron/');
     return hasElectronBridge || hasElectronUserAgent;
+  }
+
+  private detectMobileDevice(): boolean {
+    if (typeof navigator === 'undefined') {
+      return false;
+    }
+    const ua = navigator.userAgent;
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+      || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua));
   }
 
   openDownloadOptions(): void {

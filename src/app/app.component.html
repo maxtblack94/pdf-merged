@@ -1,6 +1,6 @@
 <app-maintenance *ngIf="isMaintenance" />
 <div class="app" *ngIf="!isMaintenance">
-  @if (!isDesktopRuntime && hasDesktopDownloadLink()) {
+  @if (shouldShowDesktopBanner()) {
     <div class="desktop-download-banner">
       <span class="desktop-download-text">{{ text('desktopBannerMessage') }}</span>
       <a class="desktop-download-link" [href]="desktopDownloadUrl" target="_blank" rel="noopener noreferrer">
