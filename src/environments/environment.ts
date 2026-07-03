@@ -4,8 +4,8 @@
 
 export const environment = {
   production: false,
-  maintenance: true,
-  showDesktopBannerWeb: true,
+  maintenance: false,
+  showDesktopBannerWeb: false,
   showDesktopBannerMobile: false
 };
 

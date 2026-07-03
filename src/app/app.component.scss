@@ -431,6 +431,7 @@ body { font-family: "Segoe UI", system-ui, sans-serif; }
         width: auto;
         height: auto;
         cursor: crosshair;
+        touch-action: none;
       }
 
       .crop-selection {
