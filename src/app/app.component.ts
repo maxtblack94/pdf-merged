@@ -515,12 +515,16 @@ export class AppComponent implements OnInit {
     this.cropEditorError = null;
   }
 
-  onCropPointerDown(event: MouseEvent, imageElement: HTMLImageElement, stageElement: HTMLElement): void {
+  onCropPointerDown(event: MouseEvent | TouchEvent, imageElement: HTMLImageElement, stageElement: HTMLElement): void {
     if (!this.isCropEditorOpen || this.isMerging) {
       return;
     }
     event.preventDefault();
-    const point = this.readPointInsideImage(event, imageElement);
+    const clientPoint = this.extractClientPoint(event);
+    if (!clientPoint) {
+      return;
+    }
+    const point = this.readPointInsideClientPosition(clientPoint.clientX, clientPoint.clientY, imageElement);
     if (!point) {
       return;
     }
@@ -529,8 +533,8 @@ export class AppComponent implements OnInit {
     this.cropSelectionStartY = point.y;
     this.activeCropStageElement = stageElement;
     this.activeCropImageElement = imageElement;
-    this.cropPointerClientX = event.clientX;
-    this.cropPointerClientY = event.clientY;
+    this.cropPointerClientX = clientPoint.clientX;
+    this.cropPointerClientY = clientPoint.clientY;
     this.currentCropSelection = {
       x: point.x,
       y: point.y,
@@ -542,14 +546,19 @@ export class AppComponent implements OnInit {
     this.startCropAutoScrollLoop();
   }
 
-  onCropPointerMove(event: MouseEvent, imageElement: HTMLImageElement): void {
+  onCropPointerMove(event: MouseEvent | TouchEvent, imageElement: HTMLImageElement): void {
     if (!this.isDrawingCropSelection) {
       return;
     }
     event.preventDefault();
-    this.cropPointerClientX = event.clientX;
-    this.cropPointerClientY = event.clientY;
-    const point = this.readPointInsideImage(event, imageElement) ?? { x: this.cropSelectionStartX, y: this.cropSelectionStartY };
+    const clientPoint = this.extractClientPoint(event);
+    if (!clientPoint) {
+      return;
+    }
+    this.cropPointerClientX = clientPoint.clientX;
+    this.cropPointerClientY = clientPoint.clientY;
+    const point = this.readPointInsideClientPosition(clientPoint.clientX, clientPoint.clientY, imageElement)
+      ?? { x: this.cropSelectionStartX, y: this.cropSelectionStartY };
     this.currentCropSelection = this.buildSelectionFromPoints(
       this.cropSelectionStartX,
       this.cropSelectionStartY,
@@ -690,11 +699,17 @@ export class AppComponent implements OnInit {
   private registerGlobalCropListeners(): void {
     window.addEventListener('mousemove', this.handleGlobalCropMouseMove);
     window.addEventListener('mouseup', this.handleGlobalCropMouseUp);
+    window.addEventListener('touchmove', this.handleGlobalCropTouchMove, { passive: false });
+    window.addEventListener('touchend', this.handleGlobalCropTouchEnd);
+    window.addEventListener('touchcancel', this.handleGlobalCropTouchEnd);
   }
 
   private unregisterGlobalCropListeners(): void {
     window.removeEventListener('mousemove', this.handleGlobalCropMouseMove);
     window.removeEventListener('mouseup', this.handleGlobalCropMouseUp);
+    window.removeEventListener('touchmove', this.handleGlobalCropTouchMove);
+    window.removeEventListener('touchend', this.handleGlobalCropTouchEnd);
+    window.removeEventListener('touchcancel', this.handleGlobalCropTouchEnd);
   }
 
   private readonly handleGlobalCropMouseMove = (event: MouseEvent): void => {
@@ -718,6 +733,47 @@ export class AppComponent implements OnInit {
   private readonly handleGlobalCropMouseUp = (): void => {
     this.onCropPointerUp();
   };
+
+  private readonly handleGlobalCropTouchMove = (event: TouchEvent): void => {
+    if (!this.isDrawingCropSelection || !this.activeCropImageElement) {
+      return;
+    }
+    const clientPoint = this.extractClientPoint(event);
+    if (!clientPoint) {
+      return;
+    }
+    event.preventDefault();
+    this.cropPointerClientX = clientPoint.clientX;
+    this.cropPointerClientY = clientPoint.clientY;
+    const point = this.readPointInsideClientPosition(
+      clientPoint.clientX,
+      clientPoint.clientY,
+      this.activeCropImageElement,
+      true
+    );
+    if (!point) {
+      return;
+    }
+    this.currentCropSelection = this.buildSelectionFromPoints(
+      this.cropSelectionStartX,
+      this.cropSelectionStartY,
+      point.x,
+      point.y
+    );
+  };
+
+  private readonly handleGlobalCropTouchEnd = (): void => {
+    this.onCropPointerUp();
+  };
+
+  private extractClientPoint(event: MouseEvent | TouchEvent): { clientX: number; clientY: number } | null {
+    if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
+      const touch = event.touches[0] ?? event.changedTouches[0];
+      return touch ? { clientX: touch.clientX, clientY: touch.clientY } : null;
+    }
+    const mouseEvent = event as MouseEvent;
+    return { clientX: mouseEvent.clientX, clientY: mouseEvent.clientY };
+  }
 
   private startCropAutoScrollLoop(): void {
     if (this.cropAutoScrollFrameId !== null) {

@@ -187,6 +187,10 @@
                 (mousedown)="onCropPointerDown($event, cropImage, cropStage)"
                 (mousemove)="onCropPointerMove($event, cropImage)"
                 (mouseup)="onCropPointerUp()"
+                (touchstart)="onCropPointerDown($event, cropImage, cropStage)"
+                (touchmove)="onCropPointerMove($event, cropImage)"
+                (touchend)="onCropPointerUp()"
+                (touchcancel)="onCropPointerUp()"
                 draggable="false"
               />
               @if (currentCropSelection) {
