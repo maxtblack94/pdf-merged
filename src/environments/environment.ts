@@ -4,9 +4,10 @@
 
 export const environment = {
   production: false,
-  maintenance: true,
-  showDesktopBannerWeb: true,
-  showDesktopBannerMobile: false
+  maintenance: false,
+  showDesktopBannerWeb: false,
+  showDesktopBannerMobile: false,
+  showAnnouncementBanner: true
 };
 
 /*

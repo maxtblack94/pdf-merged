@@ -1,5 +1,16 @@
-<app-maintenance *ngIf="isMaintenance" />
-<div class="app" *ngIf="!isMaintenance">
+@if (isMaintenance) {
+  <app-maintenance />
+}
+@if (!isMaintenance) {
+<div class="app">
+  @if (showAnnouncementBanner) {
+    <div class="announcement-banner" role="status" aria-live="polite">
+      <div class="announcement-track">
+        <span>{{ text('announcementBanner') }}</span>
+        <span aria-hidden="true">{{ text('announcementBanner') }}</span>
+      </div>
+    </div>
+  }
   @if (shouldShowDesktopBanner()) {
     <div class="desktop-download-banner">
       <span class="desktop-download-text">{{ text('desktopBannerMessage') }}</span>
@@ -96,6 +107,9 @@
                 <span class="file-name">{{ file.name }}</span>
                 <span class="file-size">{{ formatSize(file.size) }}</span>
               </div>
+              @if (isFileRotated(i)) {
+                <span class="file-rotated-badge" [attr.title]="rotatedBadgeTitle(i)">🔄 {{ rotatedPageCount(i) }}</span>
+              }
               <button class="btn-remove" (click)="removeFile(i)" [disabled]="isAddingFiles || isMerging" [attr.title]="text('remove')">✕</button>
             </li>
           }
@@ -103,21 +117,56 @@
       </div>
     }
 
+    <!-- Rotation suggestion (EXIF) -->
+    @if (hasRotationSuggestion()) {
+      <div class="alert alert-info rotation-suggestion">
+        <span class="rotation-suggestion-text">🧭 {{ rotationSuggestionMessage() }}</span>
+        <div class="rotation-suggestion-actions">
+          <button class="btn btn-rotate btn-sm" (click)="applySuggestedRotations()">{{ text('rotationSuggestStraighten') }}</button>
+          <button class="btn btn-ghost btn-sm" (click)="openRotateEditor()" [disabled]="isMerging || isAddingFiles || isRotateEditorOpen">{{ text('rotationSuggestOpen') }}</button>
+          <button class="btn btn-ghost btn-sm" (click)="dismissRotationSuggestion()">{{ text('rotationSuggestIgnore') }}</button>
+        </div>
+      </div>
+    }
+
+    <!-- PDF already-rotated pages notice -->
+    @if (hasPdfRotationNotice()) {
+      <div class="alert alert-info rotation-suggestion">
+        <span class="rotation-suggestion-text">🧭 {{ pdfRotationNoticeMessage() }}</span>
+        <div class="rotation-suggestion-actions">
+          <button class="btn btn-rotate btn-sm" (click)="openRotateEditor()" [disabled]="isMerging || isAddingFiles || isRotateEditorOpen">{{ text('rotationSuggestOpen') }}</button>
+          <button class="btn btn-ghost btn-sm" (click)="dismissPdfRotationNotice()">{{ text('rotationSuggestIgnore') }}</button>
+        </div>
+      </div>
+    }
+
     <!-- Actions -->
     @if (files.length > 0) {
       <div class="actions">
         @if (!isChoosingQuality) {
-          <button class="btn btn-primary" (click)="openDownloadOptions()" [disabled]="isMerging || isAddingFiles || isCropChoiceOpen || isCropEditorOpen">
-            @if (!isMerging && !isAddingFiles) {
-              <span>🔗 {{ text('generatePdf') }}</span>
+          <div class="primary-actions">
+            <button class="btn btn-primary" (click)="openDownloadOptions()" [disabled]="isMerging || isAddingFiles || isCropChoiceOpen || isCropEditorOpen">
+              @if (!isMerging && !isAddingFiles) {
+                <span>🔗 {{ text('generatePdf') }}</span>
+              }
+              @if (isMerging) {
+                <span class="spinner">⏳ {{ text('processing') }}</span>
+              }
+              @if (isAddingFiles) {
+                <span class="spinner">⏳ {{ text('uploading') }}</span>
+              }
+            </button>
+            @if (canSplitPdf()) {
+              <button class="btn btn-split" (click)="openSplitEditor()" [disabled]="isMerging || isAddingFiles || isSplitEditorOpen">
+                <span>✂️ {{ text('splitPdf') }}</span>
+              </button>
             }
-            @if (isMerging) {
-              <span class="spinner">⏳ {{ text('processing') }}</span>
+            @if (canRotate()) {
+              <button class="btn btn-rotate" (click)="openRotateEditor()" [disabled]="isMerging || isAddingFiles || isRotateEditorOpen">
+                <span>🔄 {{ text('rotatePdf') }}</span>
+              </button>
             }
-            @if (isAddingFiles) {
-              <span class="spinner">⏳ {{ text('uploading') }}</span>
-            }
-          </button>
+          </div>
         }
         @if (isChoosingQuality) {
           <div class="quality-picker">
@@ -217,6 +266,114 @@
     </div>
   }
 
+  @if (isSplitEditorOpen) {
+    <div class="modal-overlay">
+      <div class="modal-card split-editor-modal">
+        <div class="modal-title-row">
+          <h3>✂️ {{ text('splitEditorTitle') }}</h3>
+          <button class="modal-close-btn" (click)="cancelSplitEditor()" [attr.aria-label]="text('cancel')" [disabled]="isGeneratingSplit">✕</button>
+        </div>
+        <p class="split-editor-hint">{{ text('splitEditorHint') }}</p>
+
+        @if (isPreparingSplit) {
+          <div class="split-loading"><span class="spinner">⏳</span> {{ text('splitPreparing') }}</div>
+        }
+
+        @if (!isPreparingSplit && splitPages.length > 0) {
+          <div class="split-toolbar">
+            <span class="split-count">{{ selectedSplitPageLabel(selectedSplitPageCount()) }}</span>
+            <div class="split-toolbar-actions">
+              <button class="btn btn-ghost btn-sm" (click)="selectAllSplitPages()">{{ text('splitSelectAll') }}</button>
+              <button class="btn btn-ghost btn-sm" (click)="deselectAllSplitPages()">{{ text('splitDeselectAll') }}</button>
+            </div>
+          </div>
+          <div class="split-grid">
+            @for (page of splitPages; track page.pageNumber) {
+              <button
+                type="button"
+                class="split-page"
+                [class.selected]="page.selected"
+                (click)="toggleSplitPage(page)"
+                [attr.aria-pressed]="page.selected"
+                [attr.aria-label]="text('splitPageAria') + ' ' + page.pageNumber"
+              >
+                <span class="split-page-check">✓</span>
+                <img [src]="page.thumbnailUrl" [attr.alt]="text('splitPageAria') + ' ' + page.pageNumber" draggable="false" />
+                <span class="split-page-number">{{ page.pageNumber }}</span>
+              </button>
+            }
+          </div>
+        }
+
+        @if (splitError) {
+          <div class="alert alert-error">{{ splitError }}</div>
+        }
+
+        <div class="modal-actions">
+          <button class="btn btn-primary" (click)="generateSplitPdf()" [disabled]="isGeneratingSplit || isPreparingSplit || selectedSplitPageCount() === 0">
+            @if (isGeneratingSplit) {
+              <span class="spinner">⏳ {{ text('splitGenerating') }}</span>
+            } @else {
+              <span>⬇️ {{ text('splitGenerate') }}</span>
+            }
+          </button>
+          <button class="btn btn-ghost btn-sm" (click)="cancelSplitEditor()" [disabled]="isGeneratingSplit">{{ text('cancel') }}</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (isRotateEditorOpen) {
+    <div class="modal-overlay">
+      <div class="modal-card rotate-editor-modal">
+        <div class="modal-title-row">
+          <h3>🔄 {{ text('rotateEditorTitle') }}</h3>
+          <button class="modal-close-btn" (click)="closeRotateEditor()" [attr.aria-label]="text('cancel')">✕</button>
+        </div>
+        <p class="rotate-editor-hint">{{ text('rotateEditorHint') }}</p>
+
+        @if (isPreparingRotate) {
+          <div class="split-loading"><span class="spinner">⏳</span> {{ text('rotatePreparing') }}</div>
+        }
+
+        @if (!isPreparingRotate && rotatePages.length > 0) {
+          <div class="rotate-grid">
+            @for (page of rotatePages; track $index) {
+              <div class="rotate-tile">
+                <div class="rotate-thumb">
+                  <img
+                    [src]="page.thumbnailUrl"
+                    [attr.alt]="page.label"
+                    [style.transform]="'rotate(' + page.rotation + 'deg)'"
+                    draggable="false"
+                  />
+                </div>
+                <span class="rotate-label" [attr.title]="page.label">{{ page.label }}</span>
+                @if (page.baseRotation) {
+                  <span class="rotate-base-note">{{ text('rotateAlreadyRotated') }} {{ page.baseRotation }}°</span>
+                }
+                <div class="rotate-controls">
+                  <button class="rotate-btn" (click)="rotatePageBy(page, -90)" [attr.aria-label]="text('rotateCounterClockwise')" [attr.title]="text('rotateCounterClockwise')">↺</button>
+                  <span class="rotate-deg">{{ rotateTileAngle(page) }}°</span>
+                  <button class="rotate-btn" (click)="rotatePageBy(page, 90)" [attr.aria-label]="text('rotateClockwise')" [attr.title]="text('rotateClockwise')">↻</button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+
+        @if (rotateError) {
+          <div class="alert alert-error">{{ rotateError }}</div>
+        }
+
+        <div class="modal-actions">
+          <button class="btn btn-primary" (click)="closeRotateEditor()">{{ text('rotateDone') }}</button>
+          <button class="btn btn-warning btn-sm" (click)="resetAllRotations()" [disabled]="rotatePages.length === 0">{{ text('rotateResetAll') }}</button>
+        </div>
+      </div>
+    </div>
+  }
+
   @if (isDownloadSuccessOpen) {
     <div class="modal-overlay">
       <div class="modal-card">
@@ -257,3 +414,4 @@
     <p class="footer-bottom">{{ text('footerCopyright') }}</p>
   </footer>
 </div>
+}

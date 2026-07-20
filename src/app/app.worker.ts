@@ -1,11 +1,12 @@
 /// <reference lib="webworker" />
 
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, degrees } from 'pdf-lib';
 
 interface MergeWorkerFileInput {
   name: string;
   mimeType: string;
   bytes: ArrayBuffer;
+  pageRotations?: Record<number, number>;
 }
 
 interface MergeWorkerRequest {
@@ -103,13 +104,17 @@ async function mergePdfBuffers(
       for (let start = 0; start < pageIndices.length; start += COPY_CHUNK_SIZE) {
         const chunk = pageIndices.slice(start, start + COPY_CHUNK_SIZE);
         const pages = await merged.copyPages(doc, chunk);
-        pages.forEach(page => merged.addPage(page));
+        pages.forEach((page, offset) => {
+          merged.addPage(page);
+          applyPageRotation(page, file.pageRotations?.[start + offset]);
+        });
       }
       continue;
     }
 
     if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
-      await addImageAsPage(merged, bytes, mimeType);
+      const page = await addImageAsPage(merged, bytes, mimeType);
+      applyPageRotation(page, file.pageRotations?.[0]);
       continue;
     }
 
@@ -146,7 +151,7 @@ async function addImageAsPage(
   document: PDFDocument,
   bytes: Uint8Array,
   mimeType: 'image/png' | 'image/jpeg'
-): Promise<void> {
+): Promise<ReturnType<PDFDocument['addPage']>> {
   const image = mimeType === 'image/png'
     ? await document.embedPng(bytes)
     : await document.embedJpg(bytes);
@@ -157,6 +162,15 @@ async function addImageAsPage(
     width: image.width,
     height: image.height
   });
+  return page;
+}
+
+function applyPageRotation(page: ReturnType<PDFDocument['addPage']>, userRotation?: number): void {
+  if (!userRotation) {
+    return;
+  }
+  const currentAngle = page.getRotation().angle;
+  page.setRotation(degrees((currentAngle + userRotation) % 360));
 }
 
 function normalizeMimeType(rawMimeType: string, fileName: string): string {

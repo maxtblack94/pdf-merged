@@ -1,5 +1,5 @@
 import { ChangeDetectorRef, Component, NgZone, OnInit, inject } from '@angular/core';
-import { PDFDocument, PDFFont, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, PDFFont, StandardFonts, degrees, rgb } from 'pdf-lib';
 import JSZip from 'jszip';
 import { environment } from '../environments/environment';
 
@@ -23,12 +23,26 @@ interface MergeWorkerFilePayload {
   name: string;
   mimeType: string;
   bytes: ArrayBuffer;
+  pageRotations?: Record<number, number>;
 }
 interface CropBounds {
   x: number;
   y: number;
   width: number;
   height: number;
+}
+interface SplitPagePreview {
+  pageNumber: number;
+  thumbnailUrl: string;
+  selected: boolean;
+}
+interface RotatePagePreview {
+  fileIndex: number;
+  pageIndex: number;
+  label: string;
+  thumbnailUrl: string;
+  rotation: number;
+  baseRotation: number;
 }
 type AppLanguage = 'it' | 'en';
 type DownloadQuality = 'high' | 'low';
@@ -50,7 +64,8 @@ type MergeWorkerResponse = MergeWorkerSuccessResponse | MergeWorkerErrorResponse
 
 const LOCALIZED_TEXT = {
   it: {
-    subtitle: 'Unisci PDF o converti immagini/Word in un unico PDF',
+    subtitle: 'Unisci più file in un unico PDF, converti immagini e documenti Word, oppure scomponi un PDF estraendo solo le pagine desiderate.',
+    announcementBanner: '✨ Novità: scomponi un PDF ed estrai solo le pagine che ti servono — carica un singolo PDF multi-pagina per iniziare.',
     language: 'Lingua',
     version: 'Versione',
     desktopBannerMessage: 'Stai usando la versione web. Puoi scaricare l’ultima versione desktop per Windows.',
@@ -82,6 +97,40 @@ const LOCALIZED_TEXT = {
     cropEditorReset: 'Reimposta selezione',
     cropEditorAbort: 'Annulla ritaglio',
     cropEditorSelectionTooSmall: 'Seleziona un’area più ampia per applicare il ritaglio.',
+    splitPdf: 'Scomponi PDF',
+    splitEditorTitle: 'Scomponi PDF',
+    splitEditorHint: 'Seleziona le pagine da includere nel nuovo PDF.',
+    splitPreparing: 'Generazione anteprime…',
+    splitSelectAll: 'Seleziona tutte',
+    splitDeselectAll: 'Deseleziona tutte',
+    splitSelectedSingular: 'pagina selezionata',
+    splitSelectedPlural: 'pagine selezionate',
+    splitPageAria: 'Pagina',
+    splitGenerate: 'Genera PDF',
+    splitGenerating: 'Generazione PDF…',
+    splitNoSelection: 'Seleziona almeno una pagina.',
+    splitError: 'Impossibile leggere il PDF per la scomposizione.',
+    outputSplitFileName: 'output-scomposto.pdf',
+    rotatePdf: 'Ruota',
+    rotateEditorTitle: 'Ruota pagine e immagini',
+    rotateEditorHint: 'Ruota le singole pagine PDF e le immagini. Le rotazioni verranno applicate al PDF generato.',
+    rotatePreparing: 'Generazione anteprime…',
+    rotateClockwise: 'Ruota a destra',
+    rotateCounterClockwise: 'Ruota a sinistra',
+    rotateResetAll: 'Reimposta tutte',
+    rotateDone: 'Fatto',
+    rotateNothing: 'Nessuna pagina o immagine da ruotare.',
+    rotateError: 'Impossibile preparare le anteprime per la rotazione.',
+    rotatedPagesSingular: 'pagina ruotata',
+    rotatedPagesPlural: 'pagine ruotate',
+    rotationSuggestMessageSingular: 'Un’immagine potrebbe risultare ruotata nel PDF (orientamento della foto). Vuoi raddrizzarla?',
+    rotationSuggestMessagePlural: '{count} immagini potrebbero risultare ruotate nel PDF (orientamento delle foto). Vuoi raddrizzarle?',
+    rotationSuggestStraighten: 'Raddrizza automaticamente',
+    rotationSuggestOpen: 'Apri editor Ruota',
+    rotationSuggestIgnore: 'Ignora',
+    pdfRotationNoticeSingular: 'Un PDF contiene pagine con una rotazione impostata. Puoi verificarle nell’editor Ruota.',
+    pdfRotationNoticePlural: '{count} PDF contengono pagine con una rotazione impostata. Puoi verificarle nell’editor Ruota.',
+    rotateAlreadyRotated: 'già ruotata',
     cancel: 'Annulla',
     downloadSuccessTitle: 'Download completato!',
     downloadSuccessMessage: 'Il PDF unito è stato scaricato con successo.',
@@ -124,7 +173,8 @@ const LOCALIZED_TEXT = {
     footerCopyright: '© 2026 Massimo Lanera | Conforme al GDPR UE'
   },
   en: {
-    subtitle: 'Merge PDFs or convert images/Word files into one PDF',
+    subtitle: 'Merge multiple files into a single PDF, convert images and Word documents, or split a PDF by extracting only the pages you need.',
+    announcementBanner: '✨ New: split a PDF and extract only the pages you need — upload a single multi-page PDF to get started.',
     language: 'Language',
     version: 'Version',
     desktopBannerMessage: 'You are using the web version. You can download the latest desktop version for Windows.',
@@ -156,6 +206,40 @@ const LOCALIZED_TEXT = {
     cropEditorReset: 'Reset selection',
     cropEditorAbort: 'Cancel cropping',
     cropEditorSelectionTooSmall: 'Select a larger area to apply the crop.',
+    splitPdf: 'Split PDF',
+    splitEditorTitle: 'Split PDF',
+    splitEditorHint: 'Select the pages to include in the new PDF.',
+    splitPreparing: 'Generating previews…',
+    splitSelectAll: 'Select all',
+    splitDeselectAll: 'Deselect all',
+    splitSelectedSingular: 'page selected',
+    splitSelectedPlural: 'pages selected',
+    splitPageAria: 'Page',
+    splitGenerate: 'Generate PDF',
+    splitGenerating: 'Generating PDF…',
+    splitNoSelection: 'Select at least one page.',
+    splitError: 'Unable to read the PDF for splitting.',
+    outputSplitFileName: 'output-split.pdf',
+    rotatePdf: 'Rotate',
+    rotateEditorTitle: 'Rotate pages and images',
+    rotateEditorHint: 'Rotate individual PDF pages and images. Rotations are applied to the generated PDF.',
+    rotatePreparing: 'Generating previews…',
+    rotateClockwise: 'Rotate right',
+    rotateCounterClockwise: 'Rotate left',
+    rotateResetAll: 'Reset all',
+    rotateDone: 'Done',
+    rotateNothing: 'No pages or images to rotate.',
+    rotateError: 'Unable to prepare rotation previews.',
+    rotatedPagesSingular: 'page rotated',
+    rotatedPagesPlural: 'pages rotated',
+    rotationSuggestMessageSingular: 'An image may appear rotated in the PDF (photo orientation). Do you want to straighten it?',
+    rotationSuggestMessagePlural: '{count} images may appear rotated in the PDF (photo orientation). Do you want to straighten them?',
+    rotationSuggestStraighten: 'Auto-straighten',
+    rotationSuggestOpen: 'Open rotate editor',
+    rotationSuggestIgnore: 'Dismiss',
+    pdfRotationNoticeSingular: 'A PDF contains pages with a set rotation. You can review them in the rotate editor.',
+    pdfRotationNoticePlural: '{count} PDFs contain pages with a set rotation. You can review them in the rotate editor.',
+    rotateAlreadyRotated: 'already rotated',
     cancel: 'Cancel',
     downloadSuccessTitle: 'Download complete!',
     downloadSuccessMessage: 'The merged PDF has been downloaded successfully.',
@@ -209,12 +293,14 @@ type LocalizedTextKey = keyof typeof LOCALIZED_TEXT.it;
 })
 export class AppComponent implements OnInit {
   readonly isMaintenance = environment.maintenance;
+  readonly showAnnouncementBanner = environment.showAnnouncementBanner;
   private readonly mergeWorkerTimeoutMs = 5 * 60 * 1000;
   private readonly lowQualityImageMaxDimension = 1600;
   private readonly lowQualityJpegQuality = 0.62;
   private readonly minCropSelectionPx = 20;
   private readonly cropAutoScrollMarginPx = 38;
   private readonly cropAutoScrollMaxStepPx = 20;
+  private readonly splitThumbnailMaxWidth = 260;
   private readonly docMimeType = 'application/msword';
   private readonly docxMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   private readonly supportedInputMimeTypes = new Set([
@@ -269,6 +355,30 @@ export class AppComponent implements OnInit {
   // drag-to-reorder state
   dragSrcIndex: number | null = null;
   dragOverIndex: number | null = null;
+
+  // split-pdf state
+  singlePdfPageCount = 0;
+  isSplitEditorOpen = false;
+  isPreparingSplit = false;
+  isGeneratingSplit = false;
+  splitError: string | null = null;
+  splitPages: SplitPagePreview[] = [];
+  private splitSourceFile: File | null = null;
+
+  // rotate state
+  isRotateEditorOpen = false;
+  isPreparingRotate = false;
+  rotateError: string | null = null;
+  rotatePages: RotatePagePreview[] = [];
+  private readonly rotationByFilePage = new Map<string, number>();
+
+  // exif-based rotation suggestion
+  isRotationSuggestionDismissed = false;
+  private readonly suggestedRotationByFileIndex = new Map<number, number>();
+
+  // pdf already-rotated pages notice
+  isPdfRotationNoticeDismissed = false;
+  private readonly pdfRotatedFileIndexes = new Set<number>();
 
   ngOnInit(): void {
     this.isDesktopRuntime = this.detectDesktopRuntime();
@@ -325,6 +435,10 @@ export class AppComponent implements OnInit {
   removeFile(index: number): void {
     this.files = this.files.filter((_, i) => i !== index);
     this.isChoosingQuality = false;
+    this.rotationByFilePage.clear();
+    void this.refreshSplitAvailability();
+    void this.refreshRotationSuggestions();
+    void this.refreshPdfRotationInfo();
   }
 
   // ── drag-to-reorder handlers ──────────────────────────────────
@@ -360,6 +474,9 @@ export class AppComponent implements OnInit {
     this.files = arr;
     this.dragSrcIndex = null;
     this.dragOverIndex = null;
+    this.rotationByFilePage.clear();
+    void this.refreshRotationSuggestions();
+    void this.refreshPdfRotationInfo();
   }
 
   onItemDragEnd(): void {
@@ -941,6 +1058,12 @@ export class AppComponent implements OnInit {
     const files = await Promise.all(
       inputFiles.map((file, index) => this.prepareFileForMerge(file, quality, index))
     );
+    files.forEach((payload, index) => {
+      const rotations = this.collectRotationsForFile(index);
+      if (Object.keys(rotations).length > 0) {
+        payload.pageRotations = rotations;
+      }
+    });
 
     const worker = new Worker(new URL('./app.worker', import.meta.url), { type: 'module' });
     const transferableBuffers = files.map(file => file.bytes);
@@ -1022,6 +1145,9 @@ export class AppComponent implements OnInit {
     try {
       await this.sleep(0);
       this.addFiles(newFiles);
+      await this.refreshSplitAvailability();
+      await this.refreshRotationSuggestions();
+      await this.refreshPdfRotationInfo();
     } finally {
       this.isAddingFiles = false;
       this.cdr.detectChanges();
@@ -1068,7 +1194,7 @@ export class AppComponent implements OnInit {
   ): Promise<MergeWorkerFilePayload> {
     let bitmap: ImageBitmap;
     try {
-      bitmap = await createImageBitmap(file);
+      bitmap = await createImageBitmap(file, { imageOrientation: 'none' });
     } catch {
       if (quality === 'high') {
         return {
@@ -1449,9 +1575,499 @@ export class AppComponent implements OnInit {
     return message;
   }
 
+  // ── split-pdf feature ─────────────────────────────────────────
+  canSplitPdf(): boolean {
+    return this.files.length === 1
+      && this.singlePdfPageCount > 1
+      && !this.isMerging
+      && !this.isAddingFiles;
+  }
+
+  selectedSplitPageCount(): number {
+    return this.splitPages.reduce((count, page) => count + (page.selected ? 1 : 0), 0);
+  }
+
+  selectedSplitPageLabel(pageCount: number): string {
+    const suffix = pageCount === 1 ? this.text('splitSelectedSingular') : this.text('splitSelectedPlural');
+    return `${pageCount} ${suffix}`;
+  }
+
+  async openSplitEditor(): Promise<void> {
+    if (!this.canSplitPdf()) {
+      return;
+    }
+    const file = this.files[0];
+    this.splitSourceFile = file;
+    this.isChoosingQuality = false;
+    this.isSplitEditorOpen = true;
+    this.isPreparingSplit = true;
+    this.splitError = null;
+    this.splitPages = [];
+
+    try {
+      await this.renderSplitThumbnails(file);
+    } catch {
+      this.splitError = this.text('splitError');
+    } finally {
+      this.isPreparingSplit = false;
+      this.cdr.detectChanges();
+    }
+  }
+
+  toggleSplitPage(page: SplitPagePreview): void {
+    page.selected = !page.selected;
+    this.splitError = null;
+  }
+
+  selectAllSplitPages(): void {
+    this.splitPages.forEach(page => { page.selected = true; });
+    this.splitError = null;
+  }
+
+  deselectAllSplitPages(): void {
+    this.splitPages.forEach(page => { page.selected = false; });
+  }
+
+  cancelSplitEditor(): void {
+    this.isSplitEditorOpen = false;
+    this.isPreparingSplit = false;
+    this.splitPages = [];
+    this.splitSourceFile = null;
+    this.splitError = null;
+  }
+
+  async generateSplitPdf(): Promise<void> {
+    const file = this.splitSourceFile;
+    if (!file || this.isGeneratingSplit || this.isPreparingSplit) {
+      return;
+    }
+    const selectedPageNumbers = this.splitPages
+      .filter(page => page.selected)
+      .map(page => page.pageNumber);
+    if (selectedPageNumbers.length === 0) {
+      this.splitError = this.text('splitNoSelection');
+      return;
+    }
+
+    this.isGeneratingSplit = true;
+    this.splitError = null;
+    try {
+      const sourceBytes = new Uint8Array(await file.arrayBuffer());
+      const sourceDocument = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+      const targetDocument = await PDFDocument.create();
+      const pageIndices = selectedPageNumbers.map(pageNumber => pageNumber - 1);
+      const copiedPages = await targetDocument.copyPages(sourceDocument, pageIndices);
+      copiedPages.forEach((page, position) => {
+        targetDocument.addPage(page);
+        const userRotation = this.rotationByFilePage.get(`0:${pageIndices[position]}`) ?? 0;
+        if (userRotation) {
+          page.setRotation(degrees((page.getRotation().angle + userRotation) % 360));
+        }
+      });
+      const mergedBytes = await targetDocument.save({
+        useObjectStreams: true,
+        addDefaultPage: false
+      });
+      this.triggerDownload(mergedBytes, this.text('outputSplitFileName'));
+      this.cancelSplitEditor();
+      await this.sleep(200);
+      this.isDownloadSuccessOpen = true;
+    } catch (error: unknown) {
+      this.splitError = this.formatMergeError(error);
+    } finally {
+      this.isGeneratingSplit = false;
+      this.cdr.detectChanges();
+    }
+  }
+
+  private isPdfFile(file: File): boolean {
+    return file.type.toLowerCase() === 'application/pdf'
+      || file.name.toLowerCase().endsWith('.pdf');
+  }
+
+  private async refreshSplitAvailability(): Promise<void> {
+    this.singlePdfPageCount = 0;
+    if (this.files.length !== 1 || !this.isPdfFile(this.files[0])) {
+      return;
+    }
+    try {
+      const bytes = new Uint8Array(await this.files[0].arrayBuffer());
+      const document = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      this.singlePdfPageCount = document.getPageCount();
+    } catch {
+      this.singlePdfPageCount = 0;
+    }
+    this.cdr.detectChanges();
+  }
+
+  private async renderSplitThumbnails(file: File): Promise<void> {
+    const thumbnails = await this.renderPdfThumbnails(file);
+    this.splitPages = thumbnails.map((thumbnail, index) => ({
+      pageNumber: index + 1,
+      thumbnailUrl: thumbnail.thumbnailUrl,
+      selected: true
+    }));
+  }
+
+  private async renderPdfThumbnails(file: File): Promise<{ thumbnailUrl: string; baseRotation: number }[]> {
+    const pdfjs = await import('pdfjs-dist');
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).toString();
+
+    const data = new Uint8Array(await file.arrayBuffer());
+    const loadingTask = pdfjs.getDocument({ data });
+    const pdf = await loadingTask.promise;
+    try {
+      const thumbnails: { thumbnailUrl: string; baseRotation: number }[] = [];
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const baseRotation = (((page.rotate ?? 0) % 360) + 360) % 360;
+        const baseViewport = page.getViewport({ scale: 1 });
+        const scale = Math.min(this.splitThumbnailMaxWidth / baseViewport.width, 2);
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(viewport.width));
+        canvas.height = Math.max(1, Math.floor(viewport.height));
+        const context = canvas.getContext('2d');
+        if (context) {
+          await page.render({ canvas, canvasContext: context, viewport }).promise;
+          thumbnails.push({ thumbnailUrl: canvas.toDataURL('image/jpeg', 0.72), baseRotation });
+        } else {
+          thumbnails.push({ thumbnailUrl: '', baseRotation });
+        }
+        page.cleanup();
+      }
+      return thumbnails;
+    } finally {
+      await pdf.cleanup();
+      await loadingTask.destroy();
+    }
+  }
+
+  private async renderImageThumbnail(file: File): Promise<string> {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'none' });
+    try {
+      const scale = Math.min(this.splitThumbnailMaxWidth / bitmap.width, 1);
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return '';
+      }
+      context.drawImage(bitmap, 0, 0, width, height);
+      return canvas.toDataURL('image/jpeg', 0.72);
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  // ── rotate feature ────────────────────────────────────────────
+  canRotate(): boolean {
+    return !this.isMerging
+      && !this.isAddingFiles
+      && this.files.some(file => this.isRotatableFile(file));
+  }
+
+  private isRotatableFile(file: File): boolean {
+    const mimeType = this.resolveMimeOrEmpty(file);
+    return mimeType === 'application/pdf' || mimeType === 'image/png' || mimeType === 'image/jpeg';
+  }
+
+  private resolveMimeOrEmpty(file: File): string {
+    try {
+      return this.resolveSupportedMimeType(file);
+    } catch {
+      return '';
+    }
+  }
+
+  async openRotateEditor(): Promise<void> {
+    if (!this.canRotate()) {
+      return;
+    }
+    this.isChoosingQuality = false;
+    this.isRotateEditorOpen = true;
+    this.isPreparingRotate = true;
+    this.rotateError = null;
+    this.rotatePages = [];
+
+    try {
+      const previews: RotatePagePreview[] = [];
+      for (let fileIndex = 0; fileIndex < this.files.length; fileIndex += 1) {
+        const file = this.files[fileIndex];
+        const mimeType = this.resolveMimeOrEmpty(file);
+
+        if (mimeType === 'application/pdf') {
+          const thumbnails = await this.renderPdfThumbnails(file);
+          thumbnails.forEach((thumbnail, pageIndex) => {
+            previews.push({
+              fileIndex,
+              pageIndex,
+              label: `${file.name} · ${this.text('splitPageAria')} ${pageIndex + 1}`,
+              thumbnailUrl: thumbnail.thumbnailUrl,
+              rotation: this.rotationByFilePage.get(`${fileIndex}:${pageIndex}`) ?? 0,
+              baseRotation: thumbnail.baseRotation
+            });
+          });
+        } else if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
+          previews.push({
+            fileIndex,
+            pageIndex: 0,
+            label: file.name,
+            thumbnailUrl: await this.renderImageThumbnail(file),
+            rotation: this.rotationByFilePage.get(`${fileIndex}:0`) ?? 0,
+            baseRotation: 0
+          });
+        }
+      }
+
+      this.rotatePages = previews;
+      if (previews.length === 0) {
+        this.rotateError = this.text('rotateNothing');
+      }
+    } catch {
+      this.rotateError = this.text('rotateError');
+    } finally {
+      this.isPreparingRotate = false;
+      this.cdr.detectChanges();
+    }
+  }
+
+  rotatePageBy(page: RotatePagePreview, degreesDelta: number): void {
+    page.rotation = (page.rotation + degreesDelta + 360) % 360;
+    this.rotationByFilePage.set(`${page.fileIndex}:${page.pageIndex}`, page.rotation);
+  }
+
+  resetAllRotations(): void {
+    this.rotatePages.forEach(page => { page.rotation = 0; });
+    this.rotationByFilePage.clear();
+  }
+
+  closeRotateEditor(): void {
+    this.isRotateEditorOpen = false;
+    this.isPreparingRotate = false;
+    this.rotatePages = [];
+    this.rotateError = null;
+  }
+
+  rotatedPageCount(fileIndex: number): number {
+    let count = 0;
+    for (const [key, angle] of this.rotationByFilePage) {
+      if (angle === 0) {
+        continue;
+      }
+      const keyFileIndex = Number(key.slice(0, key.indexOf(':')));
+      if (keyFileIndex === fileIndex) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  isFileRotated(fileIndex: number): boolean {
+    return this.rotatedPageCount(fileIndex) > 0;
+  }
+
+  rotatedBadgeTitle(fileIndex: number): string {
+    const count = this.rotatedPageCount(fileIndex);
+    const suffix = count === 1 ? this.text('rotatedPagesSingular') : this.text('rotatedPagesPlural');
+    return `${count} ${suffix}`;
+  }
+
+  hasRotationSuggestion(): boolean {
+    return !this.isRotationSuggestionDismissed && this.filesNeedingRotation().length > 0;
+  }
+
+  rotationSuggestionMessage(): string {
+    const count = this.filesNeedingRotation().length;
+    const template = count === 1
+      ? this.text('rotationSuggestMessageSingular')
+      : this.text('rotationSuggestMessagePlural');
+    return this.withPlaceholders(template, { count: String(count) });
+  }
+
+  applySuggestedRotations(): void {
+    for (const [fileIndex, suggestedDegrees] of this.suggestedRotationByFileIndex) {
+      const key = `${fileIndex}:0`;
+      if ((this.rotationByFilePage.get(key) ?? 0) === 0) {
+        this.rotationByFilePage.set(key, suggestedDegrees);
+      }
+    }
+  }
+
+  dismissRotationSuggestion(): void {
+    this.isRotationSuggestionDismissed = true;
+  }
+
+  rotateTileAngle(page: RotatePagePreview): number {
+    return (page.baseRotation + page.rotation) % 360;
+  }
+
+  hasPdfRotationNotice(): boolean {
+    return !this.isPdfRotationNoticeDismissed && this.pdfRotatedFileIndexes.size > 0;
+  }
+
+  pdfRotationNoticeMessage(): string {
+    const count = this.pdfRotatedFileIndexes.size;
+    const template = count === 1
+      ? this.text('pdfRotationNoticeSingular')
+      : this.text('pdfRotationNoticePlural');
+    return this.withPlaceholders(template, { count: String(count) });
+  }
+
+  dismissPdfRotationNotice(): void {
+    this.isPdfRotationNoticeDismissed = true;
+  }
+
+  private async refreshPdfRotationInfo(): Promise<void> {
+    this.pdfRotatedFileIndexes.clear();
+    this.isPdfRotationNoticeDismissed = false;
+    for (let fileIndex = 0; fileIndex < this.files.length; fileIndex += 1) {
+      const file = this.files[fileIndex];
+      if (this.resolveMimeOrEmpty(file) !== 'application/pdf') {
+        continue;
+      }
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const document = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const hasRotatedPage = document.getPages().some(page => (page.getRotation().angle % 360) !== 0);
+        if (hasRotatedPage) {
+          this.pdfRotatedFileIndexes.add(fileIndex);
+        }
+      } catch {
+        // ignore unreadable PDFs; they surface as errors during merge
+      }
+    }
+    this.cdr.detectChanges();
+  }
+
+  private filesNeedingRotation(): number[] {
+    const fileIndexes: number[] = [];
+    for (const [fileIndex, suggestedDegrees] of this.suggestedRotationByFileIndex) {
+      if (suggestedDegrees > 0 && (this.rotationByFilePage.get(`${fileIndex}:0`) ?? 0) === 0) {
+        fileIndexes.push(fileIndex);
+      }
+    }
+    return fileIndexes;
+  }
+
+  private async refreshRotationSuggestions(): Promise<void> {
+    this.suggestedRotationByFileIndex.clear();
+    this.isRotationSuggestionDismissed = false;
+    for (let fileIndex = 0; fileIndex < this.files.length; fileIndex += 1) {
+      const file = this.files[fileIndex];
+      if (this.resolveMimeOrEmpty(file) !== 'image/jpeg') {
+        continue;
+      }
+      const orientation = await this.readJpegExifOrientation(file);
+      const suggestedDegrees = this.exifOrientationToDegrees(orientation);
+      if (suggestedDegrees > 0) {
+        this.suggestedRotationByFileIndex.set(fileIndex, suggestedDegrees);
+      }
+    }
+    this.cdr.detectChanges();
+  }
+
+  private exifOrientationToDegrees(orientation: number): number {
+    if (orientation === 3) {
+      return 180;
+    }
+    if (orientation === 6) {
+      return 90;
+    }
+    if (orientation === 8) {
+      return 270;
+    }
+    return 0;
+  }
+
+  private async readJpegExifOrientation(file: File): Promise<number> {
+    try {
+      const headerSize = Math.min(file.size, 256 * 1024);
+      const view = new DataView(await file.slice(0, headerSize).arrayBuffer());
+      if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) {
+        return 1;
+      }
+      let offset = 2;
+      while (offset + 4 <= view.byteLength) {
+        const marker = view.getUint16(offset);
+        offset += 2;
+        if (marker === 0xffda) {
+          break;
+        }
+        if ((marker & 0xff00) !== 0xff00) {
+          break;
+        }
+        const segmentLength = view.getUint16(offset);
+        if (segmentLength < 2) {
+          break;
+        }
+        if (marker === 0xffe1 && offset + 8 <= view.byteLength && view.getUint32(offset + 2) === 0x45786966) {
+          return this.parseExifOrientation(view, offset + 8);
+        }
+        offset += segmentLength;
+      }
+      return 1;
+    } catch {
+      return 1;
+    }
+  }
+
+  private parseExifOrientation(view: DataView, tiffStart: number): number {
+    if (tiffStart + 8 > view.byteLength) {
+      return 1;
+    }
+    const littleEndian = view.getUint16(tiffStart) === 0x4949;
+    const ifdOffset = view.getUint32(tiffStart + 4, littleEndian);
+    const directoryStart = tiffStart + ifdOffset;
+    if (directoryStart + 2 > view.byteLength) {
+      return 1;
+    }
+    const entryCount = view.getUint16(directoryStart, littleEndian);
+    for (let entry = 0; entry < entryCount; entry += 1) {
+      const entryOffset = directoryStart + 2 + entry * 12;
+      if (entryOffset + 12 > view.byteLength) {
+        break;
+      }
+      if (view.getUint16(entryOffset, littleEndian) === 0x0112) {
+        return view.getUint16(entryOffset + 8, littleEndian);
+      }
+    }
+    return 1;
+  }
+
+  private collectRotationsForFile(fileIndex: number): Record<number, number> {
+    const rotations: Record<number, number> = {};
+    for (const [key, angle] of this.rotationByFilePage) {
+      if (angle === 0) {
+        continue;
+      }
+      const separatorIndex = key.indexOf(':');
+      const keyFileIndex = Number(key.slice(0, separatorIndex));
+      const keyPageIndex = Number(key.slice(separatorIndex + 1));
+      if (keyFileIndex === fileIndex) {
+        rotations[keyPageIndex] = angle;
+      }
+    }
+    return rotations;
+  }
+
   reset(): void {
     this.isCropChoiceOpen = false;
     this.cleanupCropEditor();
+    this.cancelSplitEditor();
+    this.closeRotateEditor();
+    this.rotationByFilePage.clear();
+    this.suggestedRotationByFileIndex.clear();
+    this.isRotationSuggestionDismissed = false;
+    this.pdfRotatedFileIndexes.clear();
+    this.isPdfRotationNoticeDismissed = false;
+    this.singlePdfPageCount = 0;
     this.files = [];
     this.isAddingFiles = false;
     this.errorMessage = null;
