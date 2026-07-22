@@ -1,5 +1,6 @@
 import { ChangeDetectorRef, Component, NgZone, OnInit, inject } from '@angular/core';
 import { PDFDocument, PDFFont, StandardFonts, degrees, rgb } from 'pdf-lib';
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import JSZip from 'jszip';
 import { environment } from '../environments/environment';
 
@@ -31,10 +32,12 @@ interface CropBounds {
   width: number;
   height: number;
 }
+type SplitThumbStatus = 'pending' | 'loading' | 'done' | 'error';
 interface SplitPagePreview {
   pageNumber: number;
   thumbnailUrl: string;
   selected: boolean;
+  status: SplitThumbStatus;
 }
 interface RotatePagePreview {
   fileIndex: number;
@@ -110,6 +113,8 @@ const LOCALIZED_TEXT = {
     splitGenerating: 'Generazione PDF…',
     splitNoSelection: 'Seleziona almeno una pagina.',
     splitError: 'Impossibile leggere il PDF per la scomposizione.',
+    splitRenderProgress: '{done}/{total} anteprime generate',
+    splitThumbError: 'Anteprima non disponibile — tocca per riprovare',
     outputSplitFileName: 'output-scomposto.pdf',
     rotatePdf: 'Ruota',
     rotateEditorTitle: 'Ruota pagine e immagini',
@@ -219,6 +224,8 @@ const LOCALIZED_TEXT = {
     splitGenerating: 'Generating PDF…',
     splitNoSelection: 'Select at least one page.',
     splitError: 'Unable to read the PDF for splitting.',
+    splitRenderProgress: '{done}/{total} previews generated',
+    splitThumbError: 'Preview unavailable — tap to retry',
     outputSplitFileName: 'output-split.pdf',
     rotatePdf: 'Rotate',
     rotateEditorTitle: 'Rotate pages and images',
@@ -364,6 +371,11 @@ export class AppComponent implements OnInit {
   splitError: string | null = null;
   splitPages: SplitPagePreview[] = [];
   private splitSourceFile: File | null = null;
+  // lazy thumbnail rendering: the pdf.js document is kept open while the split
+  // editor is open so each page can be rendered on demand as it scrolls into view.
+  private splitPdf: PDFDocumentProxy | null = null;
+  private splitPdfLoadingTask: PDFDocumentLoadingTask | null = null;
+  private readonly thumbnailRenderTimeoutMs = 20000;
 
   // rotate state
   isRotateEditorOpen = false;
@@ -1603,15 +1615,81 @@ export class AppComponent implements OnInit {
     this.isPreparingSplit = true;
     this.splitError = null;
     this.splitPages = [];
+    await this.destroySplitDocument();
 
     try {
-      await this.renderSplitThumbnails(file);
+      // Open the document once and create one placeholder tile per page. The
+      // editor shows immediately; each thumbnail is rendered lazily when its
+      // tile scrolls into view, so even a 500-page PDF opens instantly.
+      const { loadingTask, pdf } = await this.loadPdfDocument(file);
+      this.splitPdfLoadingTask = loadingTask;
+      this.splitPdf = pdf;
+      this.splitPages = Array.from({ length: pdf.numPages }, (_unused, index) => ({
+        pageNumber: index + 1,
+        thumbnailUrl: '',
+        selected: true,
+        status: 'pending' as SplitThumbStatus
+      }));
     } catch {
       this.splitError = this.text('splitError');
+      await this.destroySplitDocument();
     } finally {
       this.isPreparingSplit = false;
       this.cdr.detectChanges();
     }
+  }
+
+  onSplitPageVisible(page: SplitPagePreview): void {
+    if (page.status !== 'pending') {
+      return;
+    }
+    void this.renderSplitPage(page);
+  }
+
+  private async renderSplitPage(page: SplitPagePreview): Promise<void> {
+    const pdf = this.splitPdf;
+    if (!pdf || page.status !== 'pending') {
+      return;
+    }
+    page.status = 'loading';
+    try {
+      const { thumbnailUrl } = await this.renderPdfPageToDataUrl(pdf, page.pageNumber);
+      if (!this.isSplitEditorOpen || !this.splitPages.includes(page)) {
+        return;
+      }
+      page.thumbnailUrl = thumbnailUrl;
+      page.status = thumbnailUrl ? 'done' : 'error';
+    } catch {
+      if (this.isSplitEditorOpen && this.splitPages.includes(page)) {
+        page.status = 'error';
+      }
+    } finally {
+      this.cdr.detectChanges();
+    }
+  }
+
+  retrySplitPage(page: SplitPagePreview, event: Event): void {
+    event.stopPropagation();
+    if (page.status !== 'error') {
+      return;
+    }
+    page.status = 'pending';
+    void this.renderSplitPage(page);
+  }
+
+  splitRenderedCount(): number {
+    return this.splitPages.reduce((count, page) => count + (page.status === 'done' ? 1 : 0), 0);
+  }
+
+  isRenderingSplitThumbnails(): boolean {
+    return this.splitPages.some(page => page.status === 'pending' || page.status === 'loading');
+  }
+
+  splitProgressLabel(): string {
+    return this.withPlaceholders(this.text('splitRenderProgress'), {
+      done: String(this.splitRenderedCount()),
+      total: String(this.splitPages.length)
+    });
   }
 
   toggleSplitPage(page: SplitPagePreview): void {
@@ -1634,6 +1712,20 @@ export class AppComponent implements OnInit {
     this.splitPages = [];
     this.splitSourceFile = null;
     this.splitError = null;
+    void this.destroySplitDocument();
+  }
+
+  private async destroySplitDocument(): Promise<void> {
+    const loadingTask = this.splitPdfLoadingTask;
+    this.splitPdf = null;
+    this.splitPdfLoadingTask = null;
+    if (loadingTask) {
+      try {
+        await loadingTask.destroy();
+      } catch {
+        // ignore teardown errors
+      }
+    }
   }
 
   async generateSplitPdf(): Promise<void> {
@@ -1700,44 +1792,78 @@ export class AppComponent implements OnInit {
     this.cdr.detectChanges();
   }
 
-  private async renderSplitThumbnails(file: File): Promise<void> {
-    const thumbnails = await this.renderPdfThumbnails(file);
-    this.splitPages = thumbnails.map((thumbnail, index) => ({
-      pageNumber: index + 1,
-      thumbnailUrl: thumbnail.thumbnailUrl,
-      selected: true
-    }));
-  }
-
-  private async renderPdfThumbnails(file: File): Promise<{ thumbnailUrl: string; baseRotation: number }[]> {
+  private async loadPdfDocument(file: File): Promise<{ loadingTask: PDFDocumentLoadingTask; pdf: PDFDocumentProxy }> {
     const pdfjs = await import('pdfjs-dist');
     pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
+      'assets/pdf.worker.min.mjs',
+      document.baseURI
     ).toString();
 
     const data = new Uint8Array(await file.arrayBuffer());
-    const loadingTask = pdfjs.getDocument({ data });
+    // `disableFontFace` makes pdf.js render glyphs as vector paths instead of
+    // loading embedded fonts through the FontFace API. Angular's zone.js breaks
+    // pdf.js's async font loading, so with the default (FontFace) path
+    // `page.render()` hangs forever on PDFs that embed fonts. Path rendering is
+    // accurate and ideal for small thumbnails, and it does not affect the split
+    // or rotate output (that PDF is produced separately by pdf-lib).
+    const loadingTask = pdfjs.getDocument({ data, disableFontFace: true });
     const pdf = await loadingTask.promise;
+    return { loadingTask, pdf };
+  }
+
+  private async renderPdfPageToDataUrl(
+    pdf: PDFDocumentProxy,
+    pageNumber: number
+  ): Promise<{ thumbnailUrl: string; baseRotation: number }> {
+    const page = await pdf.getPage(pageNumber);
+    try {
+      const baseRotation = (((page.rotate ?? 0) % 360) + 360) % 360;
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = Math.min(this.splitThumbnailMaxWidth / baseViewport.width, 2);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return { thumbnailUrl: '', baseRotation };
+      }
+      const renderTask = page.render({ canvas, canvasContext: context, viewport });
+      await this.awaitRenderWithTimeout(renderTask);
+      return { thumbnailUrl: canvas.toDataURL('image/jpeg', 0.72), baseRotation };
+    } finally {
+      page.cleanup();
+    }
+  }
+
+  // Safety net: if a single page never finishes rendering, cancel it and reject
+  // so the caller can surface an error instead of an endless spinner.
+  private async awaitRenderWithTimeout(renderTask: RenderTask): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const renderPromise = renderTask.promise;
+    // Swallow the late rejection produced by cancel() after a timeout.
+    renderPromise.catch(() => undefined);
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        renderTask.cancel();
+        reject(new Error('thumbnail-render-timeout'));
+      }, this.thumbnailRenderTimeoutMs);
+    });
+    try {
+      await Promise.race([renderPromise, timeout]);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  private async renderPdfThumbnails(file: File): Promise<{ thumbnailUrl: string; baseRotation: number }[]> {
+    const { loadingTask, pdf } = await this.loadPdfDocument(file);
     try {
       const thumbnails: { thumbnailUrl: string; baseRotation: number }[] = [];
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-        const page = await pdf.getPage(pageNumber);
-        const baseRotation = (((page.rotate ?? 0) % 360) + 360) % 360;
-        const baseViewport = page.getViewport({ scale: 1 });
-        const scale = Math.min(this.splitThumbnailMaxWidth / baseViewport.width, 2);
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.floor(viewport.width));
-        canvas.height = Math.max(1, Math.floor(viewport.height));
-        const context = canvas.getContext('2d');
-        if (context) {
-          await page.render({ canvas, canvasContext: context, viewport }).promise;
-          thumbnails.push({ thumbnailUrl: canvas.toDataURL('image/jpeg', 0.72), baseRotation });
-        } else {
-          thumbnails.push({ thumbnailUrl: '', baseRotation });
-        }
-        page.cleanup();
+        thumbnails.push(await this.renderPdfPageToDataUrl(pdf, pageNumber));
       }
       return thumbnails;
     } finally {

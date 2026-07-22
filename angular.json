@@ -33,7 +33,12 @@
               "src/favicon.ico",
               "src/robots.txt",
               "src/sitemap.xml",
-              "src/assets"
+              "src/assets",
+              {
+                "glob": "pdf.worker.min.mjs",
+                "input": "node_modules/pdfjs-dist/build/",
+                "output": "assets/"
+              }
             ],
             "styles": [
               "src/styles.scss"

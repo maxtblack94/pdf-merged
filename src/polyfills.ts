@@ -61,3 +61,35 @@ import 'zone.js';  // Included with Angular CLI.
 /***************************************************************************************************
  * APPLICATION IMPORTS
  */
+
+/**
+ * pdf.js (pdfjs-dist v5+) relies on the modern static Promise methods
+ * `Promise.try` and `Promise.withResolvers`. zone.js replaces the global
+ * `Promise` with its own `ZoneAwarePromise`, which does not implement
+ * `Promise.try` (even on browsers that support it natively). Without this,
+ * pdf.js throws "Promise.try is not a function" while handling worker render
+ * messages and the page-preview generation (Scomponi PDF / Ruota) hangs forever.
+ * These polyfills must run AFTER zone.js so they patch the zone-aware Promise.
+ */
+{
+  const P = Promise as unknown as {
+    try?: unknown;
+    withResolvers?: unknown;
+  };
+  if (typeof P.try !== 'function') {
+    P.try = function <T>(fn: (...args: unknown[]) => T | PromiseLike<T>, ...args: unknown[]): Promise<T> {
+      return new Promise<T>((resolve) => resolve(fn(...args)));
+    };
+  }
+  if (typeof P.withResolvers !== 'function') {
+    P.withResolvers = function <T>() {
+      let resolve!: (value: T | PromiseLike<T>) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    };
+  }
+}

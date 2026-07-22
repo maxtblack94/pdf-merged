@@ -3,11 +3,13 @@ import { NgModule } from '@angular/core';
 
 import { AppComponent } from './app.component';
 import { MaintenanceComponent } from './maintenance.component';
+import { LazyVisibleDirective } from './lazy-visible.directive';
 
 @NgModule({
   declarations: [
     AppComponent,
-    MaintenanceComponent
+    MaintenanceComponent,
+    LazyVisibleDirective
   ],
   imports: [
     BrowserModule

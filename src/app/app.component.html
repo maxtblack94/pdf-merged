@@ -281,24 +281,42 @@
 
         @if (!isPreparingSplit && splitPages.length > 0) {
           <div class="split-toolbar">
-            <span class="split-count">{{ selectedSplitPageLabel(selectedSplitPageCount()) }}</span>
+            <span class="split-count">
+              {{ selectedSplitPageLabel(selectedSplitPageCount()) }}
+              @if (isRenderingSplitThumbnails()) {
+                <span class="split-progress">· {{ splitProgressLabel() }}</span>
+              }
+            </span>
             <div class="split-toolbar-actions">
               <button class="btn btn-ghost btn-sm" (click)="selectAllSplitPages()">{{ text('splitSelectAll') }}</button>
               <button class="btn btn-ghost btn-sm" (click)="deselectAllSplitPages()">{{ text('splitDeselectAll') }}</button>
             </div>
           </div>
-          <div class="split-grid">
+          <div class="split-grid" #splitGrid>
             @for (page of splitPages; track page.pageNumber) {
               <button
                 type="button"
                 class="split-page"
                 [class.selected]="page.selected"
                 (click)="toggleSplitPage(page)"
+                appLazyVisible
+                [lazyRoot]="splitGrid"
+                (appLazyVisible)="onSplitPageVisible(page)"
                 [attr.aria-pressed]="page.selected"
                 [attr.aria-label]="text('splitPageAria') + ' ' + page.pageNumber"
               >
                 <span class="split-page-check">✓</span>
-                <img [src]="page.thumbnailUrl" [attr.alt]="text('splitPageAria') + ' ' + page.pageNumber" draggable="false" />
+                @if (page.status === 'done') {
+                  <img [src]="page.thumbnailUrl" [attr.alt]="text('splitPageAria') + ' ' + page.pageNumber" draggable="false" />
+                } @else if (page.status === 'error') {
+                  <span
+                    class="split-page-thumb split-page-thumb-error"
+                    [attr.title]="text('splitThumbError')"
+                    (click)="retrySplitPage(page, $event)"
+                  >↻</span>
+                } @else {
+                  <span class="split-page-thumb split-page-thumb-loading"><span class="spinner">⏳</span></span>
+                }
                 <span class="split-page-number">{{ page.pageNumber }}</span>
               </button>
             }
